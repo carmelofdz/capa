@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -16,7 +16,7 @@ import capa.render.result_document as rd
 
 def bold(s: str) -> str:
     """draw attention to the given string"""
-    return termcolor.colored(s, "blue")
+    return termcolor.colored(s, "cyan")
 
 
 def bold2(s: str) -> str:
@@ -37,7 +37,7 @@ def format_parts_id(data: Union[rd.AttackSpec, rd.MBCSpec]):
 
 def capability_rules(doc: rd.ResultDocument) -> Iterator[rd.RuleMatches]:
     """enumerate the rules in (namespace, name) order that are 'capability' rules (not lib/subscope/disposition/etc)."""
-    for _, _, rule in sorted(map(lambda rule: (rule.meta.namespace or "", rule.meta.name, rule), doc.rules.values())):
+    for _, _, rule in sorted((rule.meta.namespace or "", rule.meta.name, rule) for rule in doc.rules.values()):
         if rule.meta.lib:
             continue
         if rule.meta.is_subscope_rule:

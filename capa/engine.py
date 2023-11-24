@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -8,7 +8,7 @@
 
 import copy
 import collections
-from typing import TYPE_CHECKING, Set, Dict, List, Tuple, Union, Mapping, Iterable, Iterator, cast
+from typing import TYPE_CHECKING, Set, Dict, List, Tuple, Union, Mapping, Iterable, Iterator
 
 import capa.perf
 import capa.features.common
@@ -71,7 +71,7 @@ class Statement:
             yield child
 
         if hasattr(self, "children"):
-            for child in getattr(self, "children"):
+            for child in self.children:
                 assert isinstance(child, (Statement, Feature))
                 yield child
 
@@ -83,7 +83,7 @@ class Statement:
                 self.child = new
 
         if hasattr(self, "children"):
-            children = getattr(self, "children")
+            children = self.children
             for i, child in enumerate(children):
                 if child is existing:
                     children[i] = new

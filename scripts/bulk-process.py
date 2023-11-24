@@ -1,4 +1,11 @@
 #!/usr/bin/env python
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at: [package root]/LICENSE.txt
+# Unless required by applicable law or agreed to in writing, software distributed under the License
+#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and limitations under the License.
 """
 bulk-process
 
@@ -47,7 +54,7 @@ usage:
                             parallelism factor
       --no-mp               disable subprocesses
 
-Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
 You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -59,16 +66,17 @@ import os
 import sys
 import json
 import logging
-import os.path
 import argparse
 import multiprocessing
 import multiprocessing.pool
+from pathlib import Path
 
 import capa
 import capa.main
 import capa.rules
 import capa.render.json
 import capa.render.result_document as rd
+from capa.features.common import OS_AUTO
 
 logger = logging.getLogger("capa")
 
@@ -81,6 +89,7 @@ def get_capa_results(args):
       rules (capa.rules.RuleSet): the rules to match
       signatures (List[str]): list of file system paths to signature files
       format (str): the name of the sample file format
+      os (str): the name of the operating system
       path (str): the file system path to the sample to process
 
     args is a tuple because i'm not quite sure how to unpack multiple arguments using `map`.
@@ -96,12 +105,12 @@ def get_capa_results(args):
       meta (dict): the meta analysis results
       capabilities (dict): the matched capabilities and their result objects
     """
-    rules, sigpaths, format, path = args
+    rules, sigpaths, format, os_, path = args
     should_save_workspace = os.environ.get("CAPA_SAVE_WORKSPACE") not in ("0", "no", "NO", "n", None)
     logger.info("computing capa results for: %s", path)
     try:
         extractor = capa.main.get_extractor(
-            path, format, capa.main.BACKEND_VIV, sigpaths, should_save_workspace, disable_progress=True
+            path, format, os_, capa.main.BACKEND_VIV, sigpaths, should_save_workspace, disable_progress=True
         )
     except capa.main.UnsupportedFormatError:
         # i'm 100% sure if multiprocessing will reliably raise exceptions across process boundaries.
@@ -127,14 +136,15 @@ def get_capa_results(args):
             "error": f"unexpected error: {e}",
         }
 
-    meta = capa.main.collect_metadata([], path, [], extractor)
+    meta = capa.main.collect_metadata([], path, format, os_, [], extractor)
     capabilities, counts = capa.main.find_capabilities(rules, extractor, disable_progress=True)
-    meta["analysis"].update(counts)
-    meta["analysis"]["layout"] = capa.main.compute_layout(rules, extractor, capabilities)
+
+    meta.analysis.feature_counts = counts["feature_counts"]
+    meta.analysis.library_functions = counts["library_functions"]
+    meta.analysis.layout = capa.main.compute_layout(rules, extractor, capabilities)
 
     doc = rd.ResultDocument.from_capa(meta, rules, capabilities)
-
-    return {"path": path, "status": "ok", "ok": doc.dict(exclude_none=True)}
+    return {"path": path, "status": "ok", "ok": doc.model_dump()}
 
 
 def main(argv=None):
@@ -142,7 +152,7 @@ def main(argv=None):
         argv = sys.argv[1:]
 
         parser = argparse.ArgumentParser(description="detect capabilities in programs.")
-        capa.main.install_common_args(parser, wanted={"rules", "signatures"})
+        capa.main.install_common_args(parser, wanted={"rules", "signatures", "format", "os"})
         parser.add_argument("input", type=str, help="Path to directory of files to recursively analyze")
         parser.add_argument(
             "-n", "--parallelism", type=int, default=multiprocessing.cpu_count(), help="parallelism factor"
@@ -165,15 +175,16 @@ def main(argv=None):
             return -1
 
         samples = []
-        for base, directories, files in os.walk(args.input):
-            for file in files:
-                samples.append(os.path.join(base, file))
+        for file in Path(args.input).rglob("*"):
+            samples.append(file)
 
-        def pmap(f, args, parallelism=multiprocessing.cpu_count()):
+        cpu_count = multiprocessing.cpu_count()
+
+        def pmap(f, args, parallelism=cpu_count):
             """apply the given function f to the given args using subprocesses"""
             return multiprocessing.Pool(parallelism).imap(f, args)
 
-        def tmap(f, args, parallelism=multiprocessing.cpu_count()):
+        def tmap(f, args, parallelism=cpu_count):
             """apply the given function f to the given args using threads"""
             return multiprocessing.pool.ThreadPool(parallelism).imap(f, args)
 
@@ -195,12 +206,16 @@ def main(argv=None):
 
         results = {}
         for result in mapper(
-            get_capa_results, [(rules, sig_paths, "pe", sample) for sample in samples], parallelism=args.parallelism
+            get_capa_results,
+            [(rules, sig_paths, "pe", OS_AUTO, sample) for sample in samples],
+            parallelism=args.parallelism,
         ):
             if result["status"] == "error":
                 logger.warning(result["error"])
             elif result["status"] == "ok":
-                results[result["path"]] = rd.ResultDocument.parse_obj(result["ok"]).json(exclude_none=True)
+                results[result["path"].as_posix()] = rd.ResultDocument.model_validate(result["ok"]).model_dump_json(
+                    exclude_none=True
+                )
             else:
                 raise ValueError(f"unexpected status: {result['status']}")
 

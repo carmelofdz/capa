@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -100,7 +100,10 @@ class Result:
         return self.success
 
 
-class Feature(abc.ABC):
+class Feature(abc.ABC):  # noqa: B024
+    # this is an abstract class, since we don't want anyone to instantiate it directly,
+    # but it doesn't have any abstract methods.
+
     def __init__(
         self,
         value: Union[str, int, float, bytes],
@@ -124,12 +127,17 @@ class Feature(abc.ABC):
         return self.name == other.name and self.value == other.value
 
     def __lt__(self, other):
-        # TODO: this is a huge hack!
+        # implementing sorting by serializing to JSON is a huge hack.
+        # its slow, inelegant, and probably doesn't work intuitively;
+        # however, we only use it for deterministic output, so it's good enough for now.
+
+        # circular import
+        # we should fix if this wasn't already a huge hack.
         import capa.features.freeze.features
 
         return (
-            capa.features.freeze.features.feature_from_capa(self).json()
-            < capa.features.freeze.features.feature_from_capa(other).json()
+            capa.features.freeze.features.feature_from_capa(self).model_dump_json()
+            < capa.features.freeze.features.feature_from_capa(other).model_dump_json()
         )
 
     def get_name_str(self) -> str:
@@ -267,7 +275,7 @@ class _MatchedSubstring(Substring):
         self.matches = matches
 
     def __str__(self):
-        matches = ", ".join(map(lambda s: '"' + s + '"', (self.matches or {}).keys()))
+        matches = ", ".join(f'"{s}"' for s in (self.matches or {}).keys())
         assert isinstance(self.value, str)
         return f'substring("{self.value}", matches = {matches})'
 
@@ -359,7 +367,7 @@ class _MatchedRegex(Regex):
         self.matches = matches
 
     def __str__(self):
-        matches = ", ".join(map(lambda s: '"' + s + '"', (self.matches or {}).keys()))
+        matches = ", ".join(f'"{s}"' for s in (self.matches or {}).keys())
         assert isinstance(self.value, str)
         return f"regex(string =~ {self.value}, matches = {matches})"
 
@@ -417,6 +425,8 @@ OS_MACOS = "macos"
 OS_ANY = "any"
 VALID_OS = {os.value for os in capa.features.extractors.elf.OS}
 VALID_OS.update({OS_WINDOWS, OS_LINUX, OS_MACOS, OS_ANY})
+# internal only, not to be used in rules
+OS_AUTO = "auto"
 
 
 class OS(Feature):
@@ -448,6 +458,7 @@ FORMAT_AUTO = "auto"
 FORMAT_SC32 = "sc32"
 FORMAT_SC64 = "sc64"
 FORMAT_FREEZE = "freeze"
+FORMAT_RESULT = "result"
 FORMAT_UNKNOWN = "unknown"
 
 

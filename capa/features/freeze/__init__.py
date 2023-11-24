@@ -1,7 +1,7 @@
 """
 capa freeze file format: `| capa0000 | + zlib(utf-8(json(...)))`
 
-Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
 You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -12,9 +12,9 @@ See the License for the specific language governing permissions and limitations 
 import zlib
 import logging
 from enum import Enum
-from typing import Any, List, Tuple, Union
+from typing import List, Tuple, Union
 
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, ConfigDict
 
 import capa.helpers
 import capa.version
@@ -31,8 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class HashableModel(BaseModel):
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
 
 class AddressType(str, Enum):
@@ -46,7 +45,7 @@ class AddressType(str, Enum):
 
 class Address(HashableModel):
     type: AddressType
-    value: Union[int, Tuple[int, int], None]
+    value: Union[int, Tuple[int, int], None] = None  # None default value to support deserialization of NO_ADDRESS
 
     @classmethod
     def from_capa(cls, a: capa.features.address.Address) -> "Address":
@@ -159,9 +158,7 @@ class BasicBlockFeature(HashableModel):
     basic_block: Address = Field(alias="basic block")
     address: Address
     feature: Feature
-
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class InstructionFeature(HashableModel):
@@ -194,26 +191,20 @@ class FunctionFeatures(BaseModel):
     address: Address
     features: Tuple[FunctionFeature, ...]
     basic_blocks: Tuple[BasicBlockFeatures, ...] = Field(alias="basic blocks")
-
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class Features(BaseModel):
     global_: Tuple[GlobalFeature, ...] = Field(alias="global")
     file: Tuple[FileFeature, ...]
     functions: Tuple[FunctionFeatures, ...]
-
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class Extractor(BaseModel):
     name: str
     version: str = capa.version.__version__
-
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class Freeze(BaseModel):
@@ -221,9 +212,7 @@ class Freeze(BaseModel):
     base_address: Address = Field(alias="base address")
     extractor: Extractor
     features: Features
-
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 def dumps(extractor: capa.features.extractors.base_extractor.FeatureExtractor) -> str:
@@ -268,7 +257,8 @@ def dumps(extractor: capa.features.extractors.base_extractor.FeatureExtractor) -
                     basic_block=bbaddr,
                     address=Address.from_capa(addr),
                     feature=feature_from_capa(feature),
-                )
+                )  # type: ignore
+                # Mypy is unable to recognise `basic_block` as a argument due to alias
                 for feature, addr in extractor.extract_basic_block_features(f, bb)
             ]
 
@@ -287,47 +277,50 @@ def dumps(extractor: capa.features.extractors.base_extractor.FeatureExtractor) -
                 instructions.append(
                     InstructionFeatures(
                         address=iaddr,
-                        features=ifeatures,
+                        features=tuple(ifeatures),
                     )
                 )
 
             basic_blocks.append(
                 BasicBlockFeatures(
                     address=bbaddr,
-                    features=bbfeatures,
-                    instructions=instructions,
+                    features=tuple(bbfeatures),
+                    instructions=tuple(instructions),
                 )
             )
 
         function_features.append(
             FunctionFeatures(
                 address=faddr,
-                features=ffeatures,
+                features=tuple(ffeatures),
                 basic_blocks=basic_blocks,
-            )
+            )  # type: ignore
+            # Mypy is unable to recognise `basic_blocks` as a argument due to alias
         )
 
     features = Features(
         global_=global_features,
-        file=file_features,
-        functions=function_features,
-    )
+        file=tuple(file_features),
+        functions=tuple(function_features),
+    )  # type: ignore
+    # Mypy is unable to recognise `global_` as a argument due to alias
 
     freeze = Freeze(
         version=2,
         base_address=Address.from_capa(extractor.get_base_address()),
         extractor=Extractor(name=extractor.__class__.__name__),
         features=features,
-    )
+    )  # type: ignore
+    # Mypy is unable to recognise `base_address` as a argument due to alias
 
-    return freeze.json()
+    return freeze.model_dump_json()
 
 
 def loads(s: str) -> capa.features.extractors.base_extractor.FeatureExtractor:
     """deserialize a set of features (as a NullFeatureExtractor) from a string."""
     import capa.features.extractors.null as null
 
-    freeze = Freeze.parse_raw(s)
+    freeze = Freeze.model_validate_json(s)
     if freeze.version != 2:
         raise ValueError(f"unsupported freeze format version: {freeze.version}")
 
@@ -378,6 +371,7 @@ def load(buf: bytes) -> capa.features.extractors.base_extractor.FeatureExtractor
 def main(argv=None):
     import sys
     import argparse
+    from pathlib import Path
 
     import capa.main
 
@@ -385,17 +379,16 @@ def main(argv=None):
         argv = sys.argv[1:]
 
     parser = argparse.ArgumentParser(description="save capa features to a file")
-    capa.main.install_common_args(parser, {"sample", "format", "backend", "signatures"})
+    capa.main.install_common_args(parser, {"sample", "format", "backend", "os", "signatures"})
     parser.add_argument("output", type=str, help="Path to output file")
     args = parser.parse_args(args=argv)
     capa.main.handle_common_args(args)
 
     sigpaths = capa.main.get_signatures(args.signatures)
 
-    extractor = capa.main.get_extractor(args.sample, args.format, args.backend, sigpaths, False)
+    extractor = capa.main.get_extractor(args.sample, args.format, args.os, args.backend, sigpaths, False)
 
-    with open(args.output, "wb") as f:
-        f.write(dump(extractor))
+    Path(args.output).write_bytes(dump(extractor))
 
     return 0
 

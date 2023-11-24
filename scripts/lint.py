@@ -5,7 +5,7 @@ Usage:
 
    $ python scripts/lint.py rules/
 
-Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
 You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -22,13 +22,10 @@ import time
 import string
 import difflib
 import hashlib
-import inspect
 import logging
-import pathlib
 import argparse
 import itertools
 import posixpath
-import contextlib
 from typing import Set, Dict, List
 from pathlib import Path
 from dataclasses import field, dataclass
@@ -45,7 +42,7 @@ import capa.engine
 import capa.helpers
 import capa.features.insn
 from capa.rules import Rule, RuleSet
-from capa.features.common import FORMAT_PE, FORMAT_DOTNET, String, Feature, Substring
+from capa.features.common import OS_AUTO, String, Feature, Substring
 from capa.render.result_document import RuleMetadata
 
 logger = logging.getLogger("lint")
@@ -116,7 +113,7 @@ class FilenameDoesntMatchRuleName(Lint):
         expected = expected.replace(".", "")
         expected = expected + ".yml"
 
-        found = os.path.basename(rule.meta["capa/path"])
+        found = Path(rule.meta["capa/path"]).name
 
         self.recommendation = self.recommendation_template.format(expected, found)
 
@@ -251,7 +248,8 @@ class InvalidAttckOrMbcTechnique(Lint):
         super().__init__()
 
         try:
-            with open(f"{os.path.dirname(__file__)}/linter-data.json", "rb") as fd:
+            data_path = Path(__file__).resolve().parent / "linter-data.json"
+            with data_path.open("rb") as fd:
                 self.data = json.load(fd)
             self.enabled_frameworks = self.data.keys()
         except BaseException:
@@ -281,7 +279,7 @@ class InvalidAttckOrMbcTechnique(Lint):
 
     def check_rule(self, ctx: Context, rule: Rule):
         for framework in self.enabled_frameworks:
-            if framework in rule.meta.keys():
+            if framework in rule.meta:
                 for r in rule.meta[framework]:
                     m = self.reg.match(r)
                     if m is None:
@@ -297,20 +295,22 @@ DEFAULT_SIGNATURES = capa.main.get_default_signatures()
 
 
 def get_sample_capabilities(ctx: Context, path: Path) -> Set[str]:
-    nice_path = os.path.abspath(str(path))
+    nice_path = path.resolve().absolute()
     if path in ctx.capabilities_by_sample:
         logger.debug("found cached results: %s: %d capabilities", nice_path, len(ctx.capabilities_by_sample[path]))
         return ctx.capabilities_by_sample[path]
 
-    if nice_path.endswith(capa.helpers.EXTENSIONS_SHELLCODE_32):
+    if nice_path.name.endswith(capa.helpers.EXTENSIONS_SHELLCODE_32):
         format_ = "sc32"
-    elif nice_path.endswith(capa.helpers.EXTENSIONS_SHELLCODE_64):
+    elif nice_path.name.endswith(capa.helpers.EXTENSIONS_SHELLCODE_64):
         format_ = "sc64"
     else:
         format_ = capa.main.get_auto_format(nice_path)
 
     logger.debug("analyzing sample: %s", nice_path)
-    extractor = capa.main.get_extractor(nice_path, format_, "", DEFAULT_SIGNATURES, False, disable_progress=True)
+    extractor = capa.main.get_extractor(
+        nice_path, format_, OS_AUTO, capa.main.BACKEND_VIV, DEFAULT_SIGNATURES, False, disable_progress=True
+    )
 
     capabilities, _ = capa.main.find_capabilities(ctx.rules, extractor, disable_progress=True)
     # mypy doesn't seem to be happy with the MatchResults type alias & set(...keys())?
@@ -355,7 +355,7 @@ class DoesntMatchExample(Lint):
             try:
                 capabilities = get_sample_capabilities(ctx, path)
             except Exception as e:
-                logger.error("failed to extract capabilities: %s %s %s", rule.name, str(path), e, exc_info=True)
+                logger.exception("failed to extract capabilities: %s %s %s", rule.name, path, e)
                 return True
 
             if rule.name not in capabilities:
@@ -516,7 +516,7 @@ class FeatureNegativeNumber(Lint):
     recommendation = "specify the number's two's complement representation"
     recommendation_template = (
         "capa treats number features as unsigned values; you may specify the number's two's complement "
-        'representation; will not match on "{:d}"'
+        + 'representation; will not match on "{:d}"'
     )
 
     def check_features(self, ctx: Context, features: List[Feature]):
@@ -534,7 +534,7 @@ class FeatureNtdllNtoskrnlApi(Lint):
     level = Lint.WARN
     recommendation_template = (
         "check if {:s} is exported by both ntdll and ntoskrnl; if true, consider removing {:s} "
-        "module requirement to improve detection"
+        + "module requirement to improve detection"
     )
 
     def check_features(self, ctx: Context, features: List[Feature]):
@@ -543,47 +543,50 @@ class FeatureNtdllNtoskrnlApi(Lint):
                 assert isinstance(feature.value, str)
                 modname, _, impname = feature.value.rpartition(".")
 
-                if modname == "ntdll":
-                    if impname in (
-                        "LdrGetProcedureAddress",
-                        "LdrLoadDll",
-                        "NtCreateThread",
-                        "NtCreatUserProcess",
-                        "NtLoadDriver",
-                        "NtQueryDirectoryObject",
-                        "NtResumeThread",
-                        "NtSuspendThread",
-                        "NtTerminateProcess",
-                        "NtWriteVirtualMemory",
-                        "RtlGetNativeSystemInformation",
-                        "NtCreateThreadEx",
-                        "NtCreateUserProcess",
-                        "NtOpenDirectoryObject",
-                        "NtQueueApcThread",
-                        "ZwResumeThread",
-                        "ZwSuspendThread",
-                        "ZwWriteVirtualMemory",
-                        "NtCreateProcess",
-                        "ZwCreateThread",
-                        "NtCreateProcessEx",
-                        "ZwCreateThreadEx",
-                        "ZwCreateProcess",
-                        "ZwCreateUserProcess",
-                        "RtlCreateUserProcess",
-                    ):
-                        # ntoskrnl.exe does not export these routines
-                        continue
+                if modname == "ntdll" and impname in (
+                    "LdrGetProcedureAddress",
+                    "LdrLoadDll",
+                    "NtCreateThread",
+                    "NtCreatUserProcess",
+                    "NtLoadDriver",
+                    "NtQueryDirectoryObject",
+                    "NtResumeThread",
+                    "NtSuspendThread",
+                    "NtTerminateProcess",
+                    "NtWriteVirtualMemory",
+                    "RtlGetNativeSystemInformation",
+                    "NtCreateThreadEx",
+                    "NtCreateUserProcess",
+                    "NtOpenDirectoryObject",
+                    "NtQueueApcThread",
+                    "ZwResumeThread",
+                    "ZwSuspendThread",
+                    "ZwWriteVirtualMemory",
+                    "NtCreateProcess",
+                    "ZwCreateThread",
+                    "NtCreateProcessEx",
+                    "ZwCreateThreadEx",
+                    "ZwCreateProcess",
+                    "ZwCreateUserProcess",
+                    "RtlCreateUserProcess",
+                    "NtProtectVirtualMemory",
+                    "NtEnumerateSystemEnvironmentValuesEx",
+                    "NtQuerySystemEnvironmentValueEx",
+                    "NtQuerySystemEnvironmentValue",
+                ):
+                    # ntoskrnl.exe does not export these routines
+                    continue
 
-                if modname == "ntoskrnl":
-                    if impname in (
-                        "PsGetVersion",
-                        "PsLookupProcessByProcessId",
-                        "KeStackAttachProcess",
-                        "ObfDereferenceObject",
-                        "KeUnstackDetachProcess",
-                    ):
-                        # ntdll.dll does not export these routines
-                        continue
+                if modname == "ntoskrnl" and impname in (
+                    "PsGetVersion",
+                    "PsLookupProcessByProcessId",
+                    "KeStackAttachProcess",
+                    "ObfDereferenceObject",
+                    "KeUnstackDetachProcess",
+                    "ExGetFirmwareEnvironmentVariable",
+                ):
+                    # ntdll.dll does not export these routines
+                    continue
 
                 if modname in ("ntdll", "ntoskrnl"):
                     self.recommendation = self.recommendation_template.format(impname, modname)
@@ -825,7 +828,7 @@ def lint_rule(ctx: Context, rule: Rule):
             print("")
 
     if is_nursery_rule(rule):
-        has_examples = not any(map(lambda v: v.level == Lint.FAIL and v.name == "missing examples", violations))
+        has_examples = not any(v.level == Lint.FAIL and v.name == "missing examples" for v in violations)
         lints_failed = len(
             tuple(
                 filter(
@@ -864,37 +867,6 @@ def width(s, count):
         return s.ljust(count)
 
 
-@contextlib.contextmanager
-def redirecting_print_to_tqdm():
-    """
-    tqdm (progress bar) expects to have fairly tight control over console output.
-    so calls to `print()` will break the progress bar and make things look bad.
-    so, this context manager temporarily replaces the `print` implementation
-    with one that is compatible with tqdm.
-
-    via: https://stackoverflow.com/a/42424890/87207
-    """
-    old_print = print
-
-    def new_print(*args, **kwargs):
-        # If tqdm.tqdm.write raises error, use builtin print
-        try:
-            tqdm.tqdm.write(*args, **kwargs)
-        except:
-            old_print(*args, **kwargs)
-
-    try:
-        # Globally replace print with new_print.
-        # Verified this works manually on Python 3.11:
-        #     >>> import inspect
-        #     >>> inspect.builtins
-        #     <module 'builtins' (built-in)>
-        inspect.builtins.print = new_print  # type: ignore
-        yield
-    finally:
-        inspect.builtins.print = old_print  # type: ignore
-
-
 def lint(ctx: Context):
     """
     Returns: Dict[string, Tuple(int, int)]
@@ -904,8 +876,8 @@ def lint(ctx: Context):
     ret = {}
 
     source_rules = [rule for rule in ctx.rules.rules.values() if not rule.is_subscope_rule()]
-    with tqdm.contrib.logging.tqdm_logging_redirect(source_rules, unit="rule") as pbar:
-        with redirecting_print_to_tqdm():
+    with tqdm.contrib.logging.tqdm_logging_redirect(source_rules, unit="rule", leave=False) as pbar:
+        with capa.helpers.redirecting_print_to_tqdm(False):
             for rule in pbar:
                 name = rule.name
                 pbar.set_description(width(f"linting rule: {name}", 48))
@@ -914,43 +886,31 @@ def lint(ctx: Context):
     return ret
 
 
-def collect_samples(path) -> Dict[str, Path]:
+def collect_samples(samples_path: Path) -> Dict[str, Path]:
     """
     recurse through the given path, collecting all file paths, indexed by their content sha256, md5, and filename.
     """
     samples = {}
-    for root, dirs, files in os.walk(path):
-        for name in files:
-            if name.endswith(".viv"):
-                continue
-            if name.endswith(".idb"):
-                continue
-            if name.endswith(".i64"):
-                continue
-            if name.endswith(".frz"):
-                continue
-            if name.endswith(".fnames"):
-                continue
+    for path in samples_path.rglob("*"):
+        if path.suffix in [".viv", ".idb", ".i64", ".frz", ".fnames"]:
+            continue
 
-            path = pathlib.Path(os.path.join(root, name))
+        try:
+            buf = path.read_bytes()
+        except IOError:
+            continue
 
-            try:
-                with path.open("rb") as f:
-                    buf = f.read()
-            except IOError:
-                continue
+        sha256 = hashlib.sha256()
+        sha256.update(buf)
 
-            sha256 = hashlib.sha256()
-            sha256.update(buf)
+        md5 = hashlib.md5()
+        md5.update(buf)
 
-            md5 = hashlib.md5()
-            md5.update(buf)
-
-            samples[sha256.hexdigest().lower()] = path
-            samples[sha256.hexdigest().upper()] = path
-            samples[md5.hexdigest().lower()] = path
-            samples[md5.hexdigest().upper()] = path
-            samples[name] = path
+        samples[sha256.hexdigest().lower()] = path
+        samples[sha256.hexdigest().upper()] = path
+        samples[md5.hexdigest().lower()] = path
+        samples[md5.hexdigest().upper()] = path
+        samples[path.name] = path
 
     return samples
 
@@ -959,12 +919,12 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
 
-    samples_path = os.path.join(os.path.dirname(__file__), "..", "tests", "data")
+    default_samples_path = str(Path(__file__).resolve().parent.parent / "tests" / "data")
 
     parser = argparse.ArgumentParser(description="Lint capa rules.")
     capa.main.install_common_args(parser, wanted={"tag"})
     parser.add_argument("rules", type=str, action="append", help="Path to rules")
-    parser.add_argument("--samples", type=str, default=samples_path, help="Path to samples")
+    parser.add_argument("--samples", type=str, default=default_samples_path, help="Path to samples")
     parser.add_argument(
         "--thorough",
         action="store_true",
@@ -995,11 +955,12 @@ def main(argv=None):
         return -1
 
     logger.info("collecting potentially referenced samples")
-    if not os.path.exists(args.samples):
-        logger.error("samples path %s does not exist", args.samples)
+    samples_path = Path(args.samples)
+    if not samples_path.exists():
+        logger.error("samples path %s does not exist", Path(samples_path))
         return -1
 
-    samples = collect_samples(args.samples)
+    samples = collect_samples(Path(samples_path))
 
     ctx = Context(samples=samples, rules=rules, is_thorough=args.thorough)
 

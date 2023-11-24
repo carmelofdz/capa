@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -10,19 +10,11 @@ import json
 import textwrap
 
 import fixtures
-from fixtures import *
-from fixtures import (
-    _692f_dotnetfile_extractor,
-    _1c444_dotnetfile_extractor,
-    _039a6_dotnetfile_extractor,
-    _0953c_dotnetfile_extractor,
-)
 
 import capa.main
 import capa.rules
 import capa.engine
 import capa.features
-from capa.engine import *
 
 
 def test_main(z9324d_extractor):
@@ -311,6 +303,30 @@ def test_byte_matching(z9324d_extractor):
     assert "byte match test" in capabilities
 
 
+def test_com_feature_matching(z395eb_extractor):
+    rules = capa.rules.RuleSet(
+        [
+            capa.rules.Rule.from_yaml(
+                textwrap.dedent(
+                    """
+                    rule:
+                        meta:
+                            name: initialize IWebBrowser2
+                            scope: basic block
+                        features:
+                            - and:
+                                - api: ole32.CoCreateInstance
+                                - com/class: InternetExplorer #bytes: 01 DF 02 00 00 00 00 00 C0 00 00 00 00 00 00 46 = CLSID_InternetExplorer
+                                - com/interface: IWebBrowser2 #bytes: 61 16 0C D3 AF CD D0 11 8A 3E 00 C0 4F C9 E2 6E = IID_IWebBrowser2
+                    """
+                )
+            )
+        ]
+    )
+    capabilities, meta = capa.main.find_capabilities(rules, z395eb_extractor)
+    assert "initialize IWebBrowser2" in capabilities
+
+
 def test_count_bb(z9324d_extractor):
     rules = capa.rules.RuleSet(
         [
@@ -357,7 +373,7 @@ def test_instruction_scope(z9324d_extractor):
     )
     capabilities, meta = capa.main.find_capabilities(rules, z9324d_extractor)
     assert "push 1000" in capabilities
-    assert 0x4071A4 in set(map(lambda result: result[0], capabilities["push 1000"]))
+    assert 0x4071A4 in {result[0] for result in capabilities["push 1000"]}
 
 
 def test_instruction_subscope(z9324d_extractor):
@@ -387,7 +403,7 @@ def test_instruction_subscope(z9324d_extractor):
     )
     capabilities, meta = capa.main.find_capabilities(rules, z9324d_extractor)
     assert "push 1000 on i386" in capabilities
-    assert 0x406F60 in set(map(lambda result: result[0], capabilities["push 1000 on i386"]))
+    assert 0x406F60 in {result[0] for result in capabilities["push 1000 on i386"]}
 
 
 def test_fix262(pma16_01_extractor, capsys):
@@ -426,14 +442,14 @@ def test_not_render_rules_also_matched(z9324d_extractor, capsys):
 
 
 def test_json_meta(capsys):
-    path = fixtures.get_data_path_by_name("pma01-01")
+    path = str(fixtures.get_data_path_by_name("pma01-01"))
     assert capa.main.main([path, "-j"]) == 0
     std = capsys.readouterr()
     std_json = json.loads(std.out)
 
-    assert {"type": "absolute", "value": 0x10001010} in list(
-        map(lambda f: f["address"], std_json["meta"]["analysis"]["layout"]["functions"])
-    )
+    assert {"type": "absolute", "value": 0x10001010} in [
+        f["address"] for f in std_json["meta"]["analysis"]["layout"]["functions"]
+    ]
 
     for addr, info in std_json["meta"]["analysis"]["layout"]["functions"]:
         if addr == ["absolute", 0x10001010]:
@@ -467,3 +483,12 @@ def test_main_dotnet4(_039a6_dotnetfile_extractor):
     # tests successful execution and one rendering
     path = _039a6_dotnetfile_extractor.path
     assert capa.main.main([path, "-vv"]) == 0
+
+
+def test_main_rd():
+    path = str(fixtures.get_data_path_by_name("pma01-01-rd"))
+    assert capa.main.main([path, "-vv"]) == 0
+    assert capa.main.main([path, "-v"]) == 0
+    assert capa.main.main([path, "-j"]) == 0
+    assert capa.main.main([path, "-q"]) == 0
+    assert capa.main.main([path]) == 0

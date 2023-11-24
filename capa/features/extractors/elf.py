@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -13,6 +13,8 @@ from enum import Enum
 from typing import Set, Dict, List, Tuple, BinaryIO, Iterator, Optional
 from dataclasses import dataclass
 
+import Elf  # from vivisect
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,7 +26,7 @@ def align(v, alignment):
         return v + (alignment - remainder)
 
 
-def read_cstr(buf, offset):
+def read_cstr(buf, offset) -> str:
     s = buf[offset:]
     s, _, _ = s.partition(b"\x00")
     return s.decode("utf-8")
@@ -54,6 +56,7 @@ class OS(str, Enum):
     CLOUD = "cloud"
     SYLLABLE = "syllable"
     NACL = "nacl"
+    ANDROID = "android"
 
 
 # via readelf: https://github.com/bminor/binutils-gdb/blob/c0e94211e1ac05049a4ce7c192c9d14d1764eb3e/binutils/readelf.c#L19635-L19658
@@ -88,7 +91,22 @@ class Shdr:
     offset: int
     size: int
     link: int
+    entsize: int
     buf: bytes
+
+    @classmethod
+    def from_viv(cls, section, buf: bytes) -> "Shdr":
+        return cls(
+            section.sh_name,
+            section.sh_type,
+            section.sh_flags,
+            section.sh_addr,
+            section.sh_offset,
+            section.sh_size,
+            section.sh_link,
+            section.sh_entsize,
+            buf,
+        )
 
 
 class ELF:
@@ -320,12 +338,12 @@ class ELF:
         shent = self.shbuf[shent_offset : shent_offset + self.e_shentsize]
 
         if self.bitness == 32:
-            sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size, sh_link = struct.unpack_from(
-                self.endian + "IIIIIII", shent, 0x0
+            sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size, sh_link, _, _, sh_entsize = struct.unpack_from(
+                self.endian + "IIIIIIIIII", shent, 0x0
             )
         elif self.bitness == 64:
-            sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size, sh_link = struct.unpack_from(
-                self.endian + "IIQQQQI", shent, 0x0
+            sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size, sh_link, _, _, sh_entsize = struct.unpack_from(
+                self.endian + "IIQQQQIIQQ", shent, 0x0
             )
         else:
             raise NotImplementedError()
@@ -337,7 +355,7 @@ class ELF:
         if len(buf) != sh_size:
             raise ValueError("failed to read section header content")
 
-        return Shdr(sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size, sh_link, buf)
+        return Shdr(sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size, sh_link, sh_entsize, buf)
 
     @property
     def section_headers(self):
@@ -396,7 +414,7 @@ class ELF:
                 # there should be vn_cnt of these.
                 # each entry describes an ABI name required by the shared object.
                 vna_offset = vn_offset + vn_aux
-                for i in range(vn_cnt):
+                for _ in range(vn_cnt):
                     # ElfXX_Vernaux layout is the same on 32 and 64 bit
                     _, _, _, vna_name, vna_next = struct.unpack_from(self.endian + "IHHII", shdr.buf, vna_offset)
 
@@ -457,10 +475,12 @@ class ELF:
         for d_tag, d_val in self.dynamic_entries:
             if d_tag == DT_STRTAB:
                 strtab_addr = d_val
+                break
 
         for d_tag, d_val in self.dynamic_entries:
             if d_tag == DT_STRSZ:
                 strtab_size = d_val
+                break
 
         if strtab_addr is None:
             return None
@@ -470,8 +490,10 @@ class ELF:
 
         strtab_offset = None
         for shdr in self.section_headers:
-            if shdr.addr <= strtab_addr < shdr.addr + shdr.size:
+            # the section header address should be defined
+            if shdr.addr and shdr.addr <= strtab_addr < shdr.addr + shdr.size:
                 strtab_offset = shdr.offset + (strtab_addr - shdr.addr)
+                break
 
         if strtab_offset is None:
             return None
@@ -500,7 +522,27 @@ class ELF:
             if d_tag != DT_NEEDED:
                 continue
 
-            yield read_cstr(strtab, d_val)
+            try:
+                yield read_cstr(strtab, d_val)
+            except UnicodeDecodeError as e:
+                logger.warning("failed to read DT_NEEDED entry: %s", str(e))
+
+    @property
+    def symtab(self) -> Optional[Tuple[Shdr, Shdr]]:
+        """
+        fetch the Shdr for the symtab and the associated strtab.
+        """
+        SHT_SYMTAB = 0x2
+        for shdr in self.section_headers:
+            if shdr.type != SHT_SYMTAB:
+                continue
+
+            # the linked section contains strings referenced by the symtab structures.
+            strtab_shdr = self.parse_section_header(shdr.link)
+
+            return shdr, strtab_shdr
+
+        return None
 
 
 @dataclass
@@ -603,11 +645,101 @@ class SHNote:
         return ABITag(os, kmajor, kminor, kpatch)
 
 
-def guess_os_from_osabi(elf) -> Optional[OS]:
+@dataclass
+class Symbol:
+    name_offset: int
+    value: int
+    size: int
+    info: int
+    other: int
+    shndx: int
+
+
+class SymTab:
+    def __init__(
+        self,
+        endian: str,
+        bitness: int,
+        symtab: Shdr,
+        strtab: Shdr,
+    ) -> None:
+        self.symbols: List[Symbol] = []
+
+        self.symtab = symtab
+        self.strtab = strtab
+
+        self._parse(endian, bitness, symtab.buf)
+
+    def _parse(self, endian: str, bitness: int, symtab_buf: bytes) -> None:
+        """
+        return the symbol's information in
+        the order specified by sys/elf32.h
+        """
+        if self.symtab.entsize == 0:
+            return
+
+        for i in range(int(len(self.symtab.buf) / self.symtab.entsize)):
+            if bitness == 32:
+                name_offset, value, size, info, other, shndx = struct.unpack_from(
+                    endian + "IIIBBH", symtab_buf, i * self.symtab.entsize
+                )
+            elif bitness == 64:
+                name_offset, info, other, shndx, value, size = struct.unpack_from(
+                    endian + "IBBHQQ", symtab_buf, i * self.symtab.entsize
+                )
+
+            self.symbols.append(Symbol(name_offset, value, size, info, other, shndx))
+
+    def get_name(self, symbol: Symbol) -> str:
+        """
+        fetch a symbol's name from symtab's
+        associated strings' section (SHT_STRTAB)
+        """
+        if not self.strtab:
+            raise ValueError("no strings found")
+
+        for i in range(symbol.name_offset, self.strtab.size):
+            if self.strtab.buf[i] == 0:
+                return self.strtab.buf[symbol.name_offset : i].decode("utf-8")
+
+        raise ValueError("symbol name not found")
+
+    def get_symbols(self) -> Iterator[Symbol]:
+        """
+        return a tuple: (name, value, size, info, other, shndx)
+        for each symbol contained in the symbol table
+        """
+        yield from self.symbols
+
+    @classmethod
+    def from_viv(cls, elf: Elf.Elf) -> Optional["SymTab"]:
+        endian = "<" if elf.getEndian() == 0 else ">"
+        bitness = elf.bits
+
+        SHT_SYMTAB = 0x2
+        for section in elf.sections:
+            if section.sh_type == SHT_SYMTAB:
+                strtab_section = elf.sections[section.sh_link]
+                sh_symtab = Shdr.from_viv(section, elf.readAtOffset(section.sh_offset, section.sh_size))
+                sh_strtab = Shdr.from_viv(
+                    strtab_section, elf.readAtOffset(strtab_section.sh_offset, strtab_section.sh_size)
+                )
+
+        try:
+            return cls(endian, bitness, sh_symtab, sh_strtab)
+        except NameError:
+            return None
+        except Exception:
+            # all exceptions that could be encountered by
+            # cls._parse() imply a faulty symbol's table.
+            raise CorruptElfFile("malformed symbol's table")
+
+
+def guess_os_from_osabi(elf: ELF) -> Optional[OS]:
     return elf.ei_osabi
 
 
-def guess_os_from_ph_notes(elf) -> Optional[OS]:
+def guess_os_from_ph_notes(elf: ELF) -> Optional[OS]:
     # search for PT_NOTE sections that specify an OS
     # for example, on Linux there is a GNU section with minimum kernel version
     PT_NOTE = 0x4
@@ -635,6 +767,11 @@ def guess_os_from_ph_notes(elf) -> Optional[OS]:
         elif note.name == "FreeBSD":
             logger.debug("note owner: %s", "FREEBSD")
             return OS.FREEBSD
+        elif note.name == "Android":
+            logger.debug("note owner: %s", "Android")
+            # see the following for parsing the structure:
+            # https://android.googlesource.com/platform/ndk/+/master/parse_elfnote.py
+            return OS.ANDROID
         elif note.name == "GNU":
             abi_tag = note.abi_tag
             if abi_tag:
@@ -646,7 +783,7 @@ def guess_os_from_ph_notes(elf) -> Optional[OS]:
     return None
 
 
-def guess_os_from_sh_notes(elf) -> Optional[OS]:
+def guess_os_from_sh_notes(elf: ELF) -> Optional[OS]:
     # search for notes stored in sections that aren't visible in program headers.
     # e.g. .note.Linux in Linux kernel modules.
     SHT_NOTE = 0x7
@@ -679,7 +816,7 @@ def guess_os_from_sh_notes(elf) -> Optional[OS]:
     return None
 
 
-def guess_os_from_linker(elf) -> Optional[OS]:
+def guess_os_from_linker(elf: ELF) -> Optional[OS]:
     # search for recognizable dynamic linkers (interpreters)
     # for example, on linux, we see file paths like: /lib64/ld-linux-x86-64.so.2
     linker = elf.linker
@@ -689,12 +826,12 @@ def guess_os_from_linker(elf) -> Optional[OS]:
     return None
 
 
-def guess_os_from_abi_versions_needed(elf) -> Optional[OS]:
+def guess_os_from_abi_versions_needed(elf: ELF) -> Optional[OS]:
     # then lets look for GLIBC symbol versioning requirements.
     # this will let us guess about linux/hurd in some cases.
 
     versions_needed = elf.versions_needed
-    if any(map(lambda abi: abi.startswith("GLIBC"), itertools.chain(*versions_needed.values()))):
+    if any(abi.startswith("GLIBC") for abi in itertools.chain(*versions_needed.values())):
         # there are any GLIBC versions needed
 
         if elf.e_machine != "i386":
@@ -720,39 +857,103 @@ def guess_os_from_abi_versions_needed(elf) -> Optional[OS]:
     return None
 
 
-def guess_os_from_needed_dependencies(elf) -> Optional[OS]:
+def guess_os_from_needed_dependencies(elf: ELF) -> Optional[OS]:
     for needed in elf.needed:
         if needed.startswith("libmachuser.so"):
             return OS.HURD
         if needed.startswith("libhurduser.so"):
             return OS.HURD
+        if needed.startswith("libandroid.so"):
+            return OS.ANDROID
+
+    return None
+
+
+def guess_os_from_symtab(elf: ELF) -> Optional[OS]:
+    shdrs = elf.symtab
+    if not shdrs:
+        # executable does not contain a symbol table
+        # or the symbol's names are stripped
+        return None
+
+    symtab_shdr, strtab_shdr = shdrs
+    symtab = SymTab(elf.endian, elf.bitness, symtab_shdr, strtab_shdr)
+
+    keywords = {
+        OS.LINUX: [
+            "linux",
+            "/linux/",
+        ],
+    }
+
+    for symbol in symtab.get_symbols():
+        sym_name = symtab.get_name(symbol)
+
+        for os, hints in keywords.items():
+            if any(hint in sym_name for hint in hints):
+                return os
 
     return None
 
 
 def detect_elf_os(f) -> str:
     """
-    f: type Union[BinaryIO, IDAIO]
+    f: type Union[BinaryIO, IDAIO, GHIDRAIO]
     """
-    elf = ELF(f)
+    try:
+        elf = ELF(f)
+    except Exception as e:
+        logger.warning("Error parsing ELF file: %s", e)
+        return "unknown"
 
-    osabi_guess = guess_os_from_osabi(elf)
-    logger.debug("guess: osabi: %s", osabi_guess)
+    try:
+        osabi_guess = guess_os_from_osabi(elf)
+        logger.debug("guess: osabi: %s", osabi_guess)
+    except Exception as e:
+        logger.warning("Error guessing OS from OSABI: %s", e)
+        osabi_guess = None
 
-    ph_notes_guess = guess_os_from_ph_notes(elf)
-    logger.debug("guess: ph notes: %s", ph_notes_guess)
+    try:
+        ph_notes_guess = guess_os_from_ph_notes(elf)
+        logger.debug("guess: ph notes: %s", ph_notes_guess)
+    except Exception as e:
+        logger.warning("Error guessing OS from program header notes: %s", e)
+        ph_notes_guess = None
 
-    sh_notes_guess = guess_os_from_sh_notes(elf)
-    logger.debug("guess: sh notes: %s", sh_notes_guess)
+    try:
+        sh_notes_guess = guess_os_from_sh_notes(elf)
+        logger.debug("guess: sh notes: %s", sh_notes_guess)
+    except Exception as e:
+        logger.warning("Error guessing OS from section header notes: %s", e)
+        sh_notes_guess = None
 
-    linker_guess = guess_os_from_linker(elf)
-    logger.debug("guess: linker: %s", linker_guess)
+    try:
+        linker_guess = guess_os_from_linker(elf)
+        logger.debug("guess: linker: %s", linker_guess)
+    except Exception as e:
+        logger.warning("Error guessing OS from linker: %s", e)
+        linker_guess = None
 
-    abi_versions_needed_guess = guess_os_from_abi_versions_needed(elf)
-    logger.debug("guess: ABI versions needed: %s", abi_versions_needed_guess)
+    try:
+        abi_versions_needed_guess = guess_os_from_abi_versions_needed(elf)
+        logger.debug("guess: ABI versions needed: %s", abi_versions_needed_guess)
+    except Exception as e:
+        logger.warning("Error guessing OS from ABI versions needed: %s", e)
+        abi_versions_needed_guess = None
 
-    needed_dependencies_guess = guess_os_from_needed_dependencies(elf)
-    logger.debug("guess: needed dependencies: %s", needed_dependencies_guess)
+    try:
+        needed_dependencies_guess = guess_os_from_needed_dependencies(elf)
+        logger.debug("guess: needed dependencies: %s", needed_dependencies_guess)
+    except Exception as e:
+        logger.warning("Error guessing OS from needed dependencies: %s", e)
+        needed_dependencies_guess = None
+
+    try:
+        symtab_guess = guess_os_from_symtab(elf)
+        logger.debug("guess: pertinent symbol name: %s", symtab_guess)
+    except Exception as e:
+        logger.warning("Error guessing OS from symbol table: %s", e)
+        symtab_guess = None
 
     ret = None
 
@@ -773,6 +974,9 @@ def detect_elf_os(f) -> str:
 
     elif needed_dependencies_guess:
         ret = needed_dependencies_guess
+
+    elif symtab_guess:
+        ret = symtab_guess
 
     return ret.value if ret is not None else "unknown"
 

@@ -14,7 +14,7 @@ example::
                  0x10003415
                  0x10003797
 
-Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
 You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -96,8 +96,7 @@ def render_meta(ostream, doc: rd.ResultDocument):
         ("library function count", len(doc.meta.analysis.library_functions)),
         (
             "total feature count",
-            doc.meta.analysis.feature_counts.file
-            + sum(map(lambda f: f.count, doc.meta.analysis.feature_counts.functions)),
+            doc.meta.analysis.feature_counts.file + sum(f.count for f in doc.meta.analysis.feature_counts.functions),
         ),
     ]
 
@@ -141,7 +140,7 @@ def render_rules(ostream, doc: rd.ResultDocument):
             rows.append((key, v))
 
         if rule.meta.scope != capa.rules.FILE_SCOPE:
-            locations = list(map(lambda m: m[0], doc.rules[rule.meta.name].matches))
+            locations = [m[0] for m in doc.rules[rule.meta.name].matches]
             rows.append(("matches", "\n".join(map(format_address, locations))))
 
         ostream.writeln(tabulate.tabulate(rows, tablefmt="plain"))

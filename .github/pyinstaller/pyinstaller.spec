@@ -17,6 +17,7 @@ a = Analysis(
         # when invoking pyinstaller from the project root,
         # this gets invoked from the directory of the spec file,
         # i.e. ./.github/pyinstaller
+        ("../../assets", "assets"),
         ("../../rules", "rules"),
         ("../../sigs", "sigs"),
         ("../../cache", "cache"),
@@ -61,6 +62,7 @@ a = Analysis(
         "qt5",
         "pyqtwebengine",
         "pyasn1",
+        "binaryninja",
     ],
 )
 
@@ -78,7 +80,7 @@ exe = EXE(
     name="capa",
     icon="logo.ico",
     debug=False,
-    strip=None,
+    strip=False,
     upx=True,
     console=True,
 )

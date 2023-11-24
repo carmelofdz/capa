@@ -1,4 +1,11 @@
 #!/usr/bin/env python2
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at: [package root]/LICENSE.txt
+# Unless required by applicable law or agreed to in writing, software distributed under the License
+#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and limitations under the License.
 """
 show-capabilities-by-function
 
@@ -40,7 +47,7 @@ Example::
       - connect TCP socket
     ...
 
-Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
 You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -54,6 +61,7 @@ import logging
 import argparse
 import collections
 from typing import Dict
+from pathlib import Path
 
 import colorama
 
@@ -68,6 +76,7 @@ import capa.render.verbose
 import capa.features.freeze
 import capa.render.result_document as rd
 from capa.helpers import get_file_taste
+from capa.features.common import FORMAT_AUTO
 from capa.features.freeze import Address
 
 logger = logging.getLogger("capa.show-capabilities-by-function")
@@ -130,12 +139,12 @@ def main(argv=None):
         argv = sys.argv[1:]
 
     parser = argparse.ArgumentParser(description="detect capabilities in programs.")
-    capa.main.install_common_args(parser, wanted={"format", "backend", "sample", "signatures", "rules", "tag"})
+    capa.main.install_common_args(parser, wanted={"format", "os", "backend", "sample", "signatures", "rules", "tag"})
     args = parser.parse_args(args=argv)
     capa.main.handle_common_args(args)
 
     try:
-        taste = get_file_taste(args.sample)
+        taste = get_file_taste(Path(args.sample))
     except IOError as e:
         logger.error("%s", str(e))
         return -1
@@ -156,17 +165,16 @@ def main(argv=None):
         logger.error("%s", str(e))
         return -1
 
-    if (args.format == "freeze") or (args.format == "auto" and capa.features.freeze.is_freeze(taste)):
+    if (args.format == "freeze") or (args.format == FORMAT_AUTO and capa.features.freeze.is_freeze(taste)):
         format_ = "freeze"
-        with open(args.sample, "rb") as f:
-            extractor = capa.features.freeze.load(f.read())
+        extractor = capa.features.freeze.load(Path(args.sample).read_bytes())
     else:
         format_ = args.format
         should_save_workspace = os.environ.get("CAPA_SAVE_WORKSPACE") not in ("0", "no", "NO", "n", None)
 
         try:
             extractor = capa.main.get_extractor(
-                args.sample, args.format, args.backend, sig_paths, should_save_workspace
+                args.sample, args.format, args.os, args.backend, sig_paths, should_save_workspace
             )
         except capa.exceptions.UnsupportedFormatError:
             capa.helpers.log_unsupported_format_error()
@@ -175,10 +183,12 @@ def main(argv=None):
             capa.helpers.log_unsupported_runtime_error()
             return -1
 
-    meta = capa.main.collect_metadata(argv, args.sample, args.rules, extractor)
+    meta = capa.main.collect_metadata(argv, args.sample, format_, args.os, args.rules, extractor)
     capabilities, counts = capa.main.find_capabilities(rules, extractor)
-    meta["analysis"].update(counts)
-    meta["analysis"]["layout"] = capa.main.compute_layout(rules, extractor, capabilities)
+
+    meta.analysis.feature_counts = counts["feature_counts"]
+    meta.analysis.library_functions = counts["library_functions"]
+    meta.analysis.layout = capa.main.compute_layout(rules, extractor, capabilities)
 
     if capa.main.has_file_limitation(rules, capabilities):
         # bail if capa encountered file limitation e.g. a packed binary

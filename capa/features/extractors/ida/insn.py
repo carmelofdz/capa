@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -73,7 +73,7 @@ def extract_insn_api_features(fh: FunctionHandle, bbh: BBHandle, ih: InsnHandle)
     """
     insn: idaapi.insn_t = ih.inner
 
-    if not insn.get_canon_mnem() in ("call", "jmp"):
+    if insn.get_canon_mnem() not in ("call", "jmp"):
         return
 
     # check calls to imported functions
@@ -216,7 +216,7 @@ def extract_insn_offset_features(
 
         p_info = capa.features.extractors.ida.helpers.get_op_phrase_info(op)
 
-        op_off = p_info.get("offset", None)
+        op_off = p_info.get("offset")
         if op_off is None:
             continue
 
@@ -398,14 +398,16 @@ def extract_insn_peb_access_characteristic_features(
     if insn.itype not in (idaapi.NN_push, idaapi.NN_mov):
         return
 
-    if all(map(lambda op: op.type != idaapi.o_mem, insn.ops)):
+    if all(op.type != idaapi.o_mem for op in insn.ops):
         # try to optimize for only memory references
         return
 
     disasm = idc.GetDisasm(insn.ea)
 
     if " fs:30h" in disasm or " gs:60h" in disasm:
-        # TODO: replace above with proper IDA
+        # TODO(mike-hunhoff): use proper IDA API for fetching segment access
+        # scanning the disassembly text is a hack.
+        # https://github.com/mandiant/capa/issues/1605
         yield Characteristic("peb access"), ih.address
 
 
@@ -419,18 +421,22 @@ def extract_insn_segment_access_features(
     """
     insn: idaapi.insn_t = ih.inner
 
-    if all(map(lambda op: op.type != idaapi.o_mem, insn.ops)):
+    if all(op.type != idaapi.o_mem for op in insn.ops):
         # try to optimize for only memory references
         return
 
     disasm = idc.GetDisasm(insn.ea)
 
     if " fs:" in disasm:
-        # TODO: replace above with proper IDA
+        # TODO(mike-hunhoff): use proper IDA API for fetching segment access
+        # scanning the disassembly text is a hack.
+        # https://github.com/mandiant/capa/issues/1605
         yield Characteristic("fs access"), ih.address
 
     if " gs:" in disasm:
-        # TODO: replace above with proper IDA
+        # TODO(mike-hunhoff): use proper IDA API for fetching segment access
+        # scanning the disassembly text is a hack.
+        # https://github.com/mandiant/capa/issues/1605
         yield Characteristic("gs access"), ih.address
 
 
@@ -441,7 +447,7 @@ def extract_insn_cross_section_cflow(
     insn: idaapi.insn_t = ih.inner
 
     for ref in idautils.CodeRefsFrom(insn.ea, False):
-        if ref in get_imports(fh.ctx).keys():
+        if ref in get_imports(fh.ctx):
             # ignore API calls
             continue
         if not idaapi.getseg(ref):
@@ -501,20 +507,3 @@ INSTRUCTION_HANDLERS = (
     extract_function_calls_from,
     extract_function_indirect_call_characteristic_features,
 )
-
-
-def main():
-    """ """
-    features = []
-    for f in capa.features.extractors.ida.helpers.get_functions(skip_thunks=True, skip_libs=True):
-        for bb in idaapi.FlowChart(f, flags=idaapi.FC_PREDS):
-            for insn in capa.features.extractors.ida.helpers.get_instructions_in_range(bb.start_ea, bb.end_ea):
-                features.extend(list(extract_features(f, bb, insn)))
-
-    import pprint
-
-    pprint.pprint(features)
-
-
-if __name__ == "__main__":
-    main()

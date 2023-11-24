@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -8,12 +8,15 @@
 
 import io
 import re
+import gzip
+import json
 import uuid
 import codecs
 import logging
 import binascii
 import collections
 from enum import Enum
+from pathlib import Path
 
 from capa.helpers import assert_never
 
@@ -24,7 +27,7 @@ except ImportError:
     # https://github.com/python/mypy/issues/1153
     from backports.functools_lru_cache import lru_cache  # type: ignore
 
-from typing import Any, Set, Dict, List, Tuple, Union, Iterator
+from typing import Any, Set, Dict, List, Tuple, Union, Iterator, Optional
 
 import yaml
 import pydantic
@@ -105,6 +108,7 @@ SUPPORTED_FEATURES: Dict[str, Set] = {
         capa.features.common.Class,
         capa.features.common.Namespace,
         capa.features.common.Characteristic("mixed mode"),
+        capa.features.common.Characteristic("forwarded export"),
     },
     FUNCTION_SCOPE: {
         capa.features.common.MatchedRule,
@@ -190,6 +194,68 @@ class InvalidRuleSet(ValueError):
 
     def __repr__(self):
         return str(self)
+
+
+class ComType(Enum):
+    CLASS = "class"
+    INTERFACE = "interface"
+
+
+# COM data source https://github.com/stevemk14ebr/COM-Code-Helper/tree/master
+VALID_COM_TYPES = {
+    ComType.CLASS: {"db_path": "assets/classes.json.gz", "prefix": "CLSID_"},
+    ComType.INTERFACE: {"db_path": "assets/interfaces.json.gz", "prefix": "IID_"},
+}
+
+
+@lru_cache(maxsize=None)
+def load_com_database(com_type: ComType) -> Dict[str, List[str]]:
+    com_db_path: Path = capa.main.get_default_root() / VALID_COM_TYPES[com_type]["db_path"]
+
+    if not com_db_path.exists():
+        raise IOError(f"COM database path '{com_db_path}' does not exist or cannot be accessed")
+
+    try:
+        with gzip.open(com_db_path, "rb") as gzfile:
+            return json.loads(gzfile.read().decode("utf-8"))
+    except Exception as e:
+        raise IOError(f"Error loading COM database from '{com_db_path}'") from e
+
+
+def translate_com_feature(com_name: str, com_type: ComType) -> ceng.Or:
+    com_db = load_com_database(com_type)
+    guid_strings: Optional[List[str]] = com_db.get(com_name)
+    if guid_strings is None or len(guid_strings) == 0:
+        logger.error(" %s doesn't exist in COM %s database", com_name, com_type)
+        raise InvalidRule(f"'{com_name}' doesn't exist in COM {com_type} database")
+
+    com_features: List = []
+    for guid_string in guid_strings:
+        hex_chars = guid_string.replace("-", "")
+        h = [hex_chars[i : i + 2] for i in range(0, len(hex_chars), 2)]
+        reordered_hex_pairs = [
+            h[3],
+            h[2],
+            h[1],
+            h[0],
+            h[5],
+            h[4],
+            h[7],
+            h[6],
+            h[8],
+            h[9],
+            h[10],
+            h[11],
+            h[12],
+            h[13],
+            h[14],
+            h[15],
+        ]
+        guid_bytes = bytes.fromhex("".join(reordered_hex_pairs))
+        prefix = VALID_COM_TYPES[com_type]["prefix"]
+        com_features.append(capa.features.common.StringFactory(guid_string, f"{prefix+com_name} as GUID string"))
+        com_features.append(capa.features.common.Bytes(guid_bytes, f"{prefix+com_name} as bytes"))
+    return ceng.Or(com_features)
 
 
 def ensure_feature_valid_for_scope(scope: str, feature: Union[Feature, Statement]):
@@ -510,7 +576,9 @@ def build_statements(d, scope: str):
                 # arg is string (which doesn't support inline descriptions), like:
                 #
                 #     count(string(error))
-                # TODO: what about embedded newlines?
+                #
+                # known problem that embedded newlines may not work here?
+                # this may become a problem (or not), so address it when encountered.
                 feature = Feature(arg)
         else:
             feature = Feature()
@@ -587,6 +655,13 @@ def build_statements(d, scope: str):
         ensure_feature_valid_for_scope(scope, feature)
         return feature
 
+    elif key.startswith("com/"):
+        com_type = str(key[len("com/") :]).upper()
+        if com_type not in [item.name for item in ComType]:
+            raise InvalidRule(f"unexpected COM type: {com_type}")
+        value, description = parse_description(d[key], key, d.get("description"))
+        return translate_com_feature(value, ComType[com_type])
+
     else:
         Feature = parse_feature(key)
         value, description = parse_description(d[key], key, d.get("description"))
@@ -634,7 +709,7 @@ class Rule:
         Returns:
           List[str]: names of rules upon which this rule depends.
         """
-        deps: Set[str] = set([])
+        deps: Set[str] = set()
 
         def rec(statement):
             if isinstance(statement, capa.features.common.MatchedRule):
@@ -648,7 +723,7 @@ class Rule:
                 # but, namespaces tend to use `-` while rule names use ` `. so, unlikely, but possible.
                 if statement.value in namespaces:
                     # matches a namespace, so take precedence and don't even check rule names.
-                    deps.update(map(lambda r: r.name, namespaces[statement.value]))
+                    deps.update(r.name for r in namespaces[statement.value])
                 else:
                     # not a namespace, assume its a rule name.
                     assert isinstance(statement.value, str)
@@ -706,8 +781,7 @@ class Rule:
             # note: we cannot recurse into the subscope sub-tree,
             #  because its been replaced by a `match` statement.
             for child in statement.get_children():
-                for new_rule in self._extract_subscope_rules_rec(child):
-                    yield new_rule
+                yield from self._extract_subscope_rules_rec(child)
 
     def is_subscope_rule(self):
         return bool(self.meta.get("capa/subscope-rule", False))
@@ -733,8 +807,34 @@ class Rule:
         #   replace old node with reference to new rule
         #   yield new rule
 
-        for new_rule in self._extract_subscope_rules_rec(self.statement):
-            yield new_rule
+        yield from self._extract_subscope_rules_rec(self.statement)
+
+    def _extract_all_features_rec(self, statement) -> Set[Feature]:
+        feature_set: Set[Feature] = set()
+
+        for child in statement.get_children():
+            if isinstance(child, Statement):
+                feature_set.update(self._extract_all_features_rec(child))
+            else:
+                feature_set.add(child)
+        return feature_set
+
+    def extract_all_features(self) -> Set[Feature]:
+        """
+        recursively extracts all feature statements in this rule.
+
+        returns:
+            set: A set of all feature statements contained within this rule.
+        """
+        if not isinstance(self.statement, ceng.Statement):
+            # For rules with single feature like
+            # anti-analysis\obfuscation\obfuscated-with-advobfuscator.yml
+            # contains a single feature - substring , which is of type String
+            return {
+                self.statement,
+            }
+
+        return self._extract_all_features_rec(self.statement)
 
     def evaluate(self, features: FeatureSet, short_circuit=True):
         capa.perf.counters["evaluate.feature"] += 1
@@ -778,7 +878,7 @@ class Rule:
             # on Windows, get WHLs from pyyaml.org/pypi
             logger.debug("using libyaml CLoader.")
             return yaml.CLoader
-        except:
+        except Exception:
             logger.debug("unable to import libyaml CLoader, falling back to Python yaml parser.")
             logger.debug("this will be slower to load rules.")
             return yaml.Loader
@@ -823,7 +923,7 @@ class Rule:
 
     @classmethod
     def from_yaml_file(cls, path, use_ruamel=False) -> "Rule":
-        with open(path, "rb") as f:
+        with Path(path).open("rb") as f:
             try:
                 rule = cls.from_yaml(f.read().decode("utf-8"), use_ruamel=use_ruamel)
                 # import here to avoid circular dependency
@@ -950,7 +1050,7 @@ def get_rules_with_scope(rules, scope) -> List[Rule]:
     from the given collection of rules, select those with the given scope.
     `scope` is one of the capa.rules.*_SCOPE constants.
     """
-    return list(rule for rule in rules if rule.scope == scope)
+    return [rule for rule in rules if rule.scope == scope]
 
 
 def get_rules_and_dependencies(rules: List[Rule], rule_name: str) -> Iterator[Rule]:
@@ -961,7 +1061,7 @@ def get_rules_and_dependencies(rules: List[Rule], rule_name: str) -> Iterator[Ru
     rules = list(rules)
     namespaces = index_rules_by_namespace(rules)
     rules_by_name = {rule.name: rule for rule in rules}
-    wanted = set([rule_name])
+    wanted = {rule_name}
 
     def rec(rule):
         wanted.add(rule.name)
@@ -976,7 +1076,7 @@ def get_rules_and_dependencies(rules: List[Rule], rule_name: str) -> Iterator[Ru
 
 
 def ensure_rules_are_unique(rules: List[Rule]) -> None:
-    seen = set([])
+    seen = set()
     for rule in rules:
         if rule.name in seen:
             raise InvalidRule("duplicate rule name: " + rule.name)
@@ -1041,7 +1141,7 @@ def topologically_order_rules(rules: List[Rule]) -> List[Rule]:
     rules = list(rules)
     namespaces = index_rules_by_namespace(rules)
     rules_by_name = {rule.name: rule for rule in rules}
-    seen = set([])
+    seen = set()
     ret = []
 
     def rec(rule):
@@ -1190,7 +1290,6 @@ class RuleSet:
                     # so thats not helpful to decide how to downselect.
                     #
                     # and, a global rule will never be the sole selector in a rule.
-                    # TODO: probably want a lint for this.
                     pass
                 else:
                     # easy feature: hash lookup
@@ -1247,7 +1346,7 @@ class RuleSet:
                 # the set of subtypes of type A is unbounded,
                 # because any user might come along and create a new subtype B,
                 # so mypy can't reason about this set of types.
-                assert False, f"Unhandled value: {node} ({type(node).__name__})"
+                assert_never(node)
             else:
                 # programming error
                 assert_never(node)
@@ -1284,7 +1383,7 @@ class RuleSet:
         don't include auto-generated "subscope" rules.
         we want to include general "lib" rules here - even if they are not dependencies of other rules, see #398
         """
-        scope_rules: Set[Rule] = set([])
+        scope_rules: Set[Rule] = set()
 
         # we need to process all rules, not just rules with the given scope.
         # this is because rules with a higher scope, e.g. file scope, may have subscope rules
@@ -1329,7 +1428,7 @@ class RuleSet:
         TODO support -t=metafield <k>
         """
         rules = list(self.rules.values())
-        rules_filtered = set([])
+        rules_filtered = set()
         for rule in rules:
             for k, v in rule.meta.items():
                 if isinstance(v, str) and tag in v:

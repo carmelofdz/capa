@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at: [package root]/LICENSE.txt
+# Unless required by applicable law or agreed to in writing, software distributed under the License
+#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and limitations under the License.
 
 import json
 import collections
-from typing import Any, Dict
+from typing import Any, Set, Dict
+from pathlib import Path
 
 import capa.main
 import capa.rules
@@ -13,7 +21,7 @@ import capa.render.utils as rutils
 import capa.render.default
 import capa.render.result_document as rd
 import capa.features.freeze.features as frzf
-from capa.engine import *
+from capa.features.common import OS_AUTO, FORMAT_AUTO
 
 
 # == Render dictionary helpers
@@ -29,7 +37,7 @@ def find_subrule_matches(doc: rd.ResultDocument) -> Set[str]:
     collect the rule names that have been matched as a subrule match.
     this way we can avoid displaying entries for things that are too specific.
     """
-    matches = set([])
+    matches = set()
 
     def rec(node: rd.Match):
         if not node.success:
@@ -65,7 +73,7 @@ def render_capabilities(doc: rd.ResultDocument, result):
     """
     subrule_matches = find_subrule_matches(doc)
 
-    result["CAPABILITY"] = dict()
+    result["CAPABILITY"] = {}
     for rule in rutils.capability_rules(doc):
         if rule.meta.name in subrule_matches:
             # rules that are also matched by other rules should not get rendered by default.
@@ -79,7 +87,7 @@ def render_capabilities(doc: rd.ResultDocument, result):
         else:
             capability = f"{rule.meta.name} ({count} matches)"
 
-        result["CAPABILITY"].setdefault(rule.meta.namespace, list())
+        result["CAPABILITY"].setdefault(rule.meta.namespace, [])
         result["CAPABILITY"][rule.meta.namespace].append(capability)
 
 
@@ -96,7 +104,7 @@ def render_attack(doc, result):
             'EXECUTION': ['Shared Modules [T1129]']}
         }
     """
-    result["ATTCK"] = dict()
+    result["ATTCK"] = {}
     tactics = collections.defaultdict(set)
     for rule in rutils.capability_rules(doc):
         if not rule.meta.attack:
@@ -129,7 +137,7 @@ def render_mbc(doc, result):
                           '[C0021.004]']}
         }
     """
-    result["MBC"] = dict()
+    result["MBC"] = {}
     objectives = collections.defaultdict(set)
     for rule in rutils.capability_rules(doc):
         if not rule.meta.mbc:
@@ -149,7 +157,7 @@ def render_mbc(doc, result):
 
 
 def render_dictionary(doc: rd.ResultDocument) -> Dict[str, Any]:
-    result: Dict[str, Any] = dict()
+    result: Dict[str, Any] = {}
     render_meta(doc, result)
     render_attack(doc, result)
     render_mbc(doc, result)
@@ -159,20 +167,25 @@ def render_dictionary(doc: rd.ResultDocument) -> Dict[str, Any]:
 
 
 # ==== render dictionary helpers
-def capa_details(rules_path, file_path, output_format="dictionary"):
+def capa_details(rules_path: Path, file_path: Path, output_format="dictionary"):
     # load rules from disk
     rules = capa.main.get_rules([rules_path])
 
     # extract features and find capabilities
-    extractor = capa.main.get_extractor(file_path, "auto", capa.main.BACKEND_VIV, [], False, disable_progress=True)
+    extractor = capa.main.get_extractor(
+        file_path, FORMAT_AUTO, OS_AUTO, capa.main.BACKEND_VIV, [], False, disable_progress=True
+    )
     capabilities, counts = capa.main.find_capabilities(rules, extractor, disable_progress=True)
 
     # collect metadata (used only to make rendering more complete)
-    meta = capa.main.collect_metadata([], file_path, rules_path, extractor)
-    meta["analysis"].update(counts)
-    meta["analysis"]["layout"] = capa.main.compute_layout(rules, extractor, capabilities)
+    meta = capa.main.collect_metadata([], file_path, FORMAT_AUTO, OS_AUTO, [rules_path], extractor)
+
+    meta.analysis.feature_counts = counts["feature_counts"]
+    meta.analysis.library_functions = counts["library_functions"]
+    meta.analysis.layout = capa.main.compute_layout(rules, extractor, capabilities)
 
     capa_output: Any = False
+
     if output_format == "dictionary":
         # ...as python dictionary, simplified as textable but in dictionary
         doc = rd.ResultDocument.from_capa(meta, rules, capabilities)
@@ -190,18 +203,18 @@ def capa_details(rules_path, file_path, output_format="dictionary"):
 
 if __name__ == "__main__":
     import sys
-    import os.path
     import argparse
 
-    RULES_PATH = os.path.join(os.path.dirname(__file__), "..", "rules")
+    RULES_PATH = capa.main.get_default_root() / "rules"
 
     parser = argparse.ArgumentParser(description="Extract capabilities from a file")
     parser.add_argument("file", help="file to extract capabilities from")
-    parser.add_argument("--rules", help="path to rules directory", default=os.path.abspath(RULES_PATH))
+    parser.add_argument("--rules", help="path to rules directory", default=RULES_PATH)
     parser.add_argument(
         "--output", help="output format", choices=["dictionary", "json", "texttable"], default="dictionary"
     )
     args = parser.parse_args()
-
-    print(capa_details(args.rules, args.file, args.output))
+    if args.rules != RULES_PATH:
+        args.rules = Path(args.rules)
+    print(capa_details(args.rules, Path(args.file), args.output))
     sys.exit(0)

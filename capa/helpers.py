@@ -1,13 +1,18 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
 # Unless required by applicable law or agreed to in writing, software distributed under the License
 #  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
-import os
+import inspect
 import logging
+import contextlib
+import importlib.util
 from typing import NoReturn
+from pathlib import Path
+
+import tqdm
 
 from capa.exceptions import UnsupportedFormatError
 from capa.features.common import FORMAT_PE, FORMAT_SC32, FORMAT_SC64, FORMAT_DOTNET, FORMAT_UNKNOWN, Format
@@ -27,36 +32,40 @@ def hex(n: int) -> str:
         return f"0x{(n):X}"
 
 
-def get_file_taste(sample_path: str) -> bytes:
-    if not os.path.exists(sample_path):
+def get_file_taste(sample_path: Path) -> bytes:
+    if not sample_path.exists():
         raise IOError(f"sample path {sample_path} does not exist or cannot be accessed")
-    with open(sample_path, "rb") as f:
-        taste = f.read(8)
+    taste = sample_path.open("rb").read(8)
     return taste
 
 
 def is_runtime_ida():
+    return importlib.util.find_spec("idc") is not None
+
+
+def is_runtime_ghidra():
     try:
-        import idc
-    except ImportError:
+        currentProgram  # type: ignore [name-defined] # noqa: F821
+    except NameError:
         return False
-    else:
-        return True
+    return True
 
 
-def assert_never(value: NoReturn) -> NoReturn:
-    assert False, f"Unhandled value: {value} ({type(value).__name__})"
+def assert_never(value) -> NoReturn:
+    # careful: python -O will remove this assertion.
+    # but this is only used for type checking, so it's ok.
+    assert False, f"Unhandled value: {value} ({type(value).__name__})"  # noqa: B011
 
 
-def get_format_from_extension(sample: str) -> str:
-    if sample.endswith(EXTENSIONS_SHELLCODE_32):
+def get_format_from_extension(sample: Path) -> str:
+    if sample.name.endswith(EXTENSIONS_SHELLCODE_32):
         return FORMAT_SC32
-    elif sample.endswith(EXTENSIONS_SHELLCODE_64):
+    elif sample.name.endswith(EXTENSIONS_SHELLCODE_64):
         return FORMAT_SC64
     return FORMAT_UNKNOWN
 
 
-def get_auto_format(path: str) -> str:
+def get_auto_format(path: Path) -> str:
     format_ = get_format(path)
     if format_ == FORMAT_UNKNOWN:
         format_ = get_format_from_extension(path)
@@ -65,13 +74,12 @@ def get_auto_format(path: str) -> str:
     return format_
 
 
-def get_format(sample: str) -> str:
+def get_format(sample: Path) -> str:
     # imported locally to avoid import cycle
     from capa.features.extractors.common import extract_format
     from capa.features.extractors.dnfile_ import DnfileFeatureExtractor
 
-    with open(sample, "rb") as f:
-        buf = f.read()
+    buf = sample.read_bytes()
 
     for feature, _ in extract_format(buf):
         if feature == Format(FORMAT_PE):
@@ -83,6 +91,39 @@ def get_format(sample: str) -> str:
         return feature.value
 
     return FORMAT_UNKNOWN
+
+
+@contextlib.contextmanager
+def redirecting_print_to_tqdm(disable_progress):
+    """
+    tqdm (progress bar) expects to have fairly tight control over console output.
+    so calls to `print()` will break the progress bar and make things look bad.
+    so, this context manager temporarily replaces the `print` implementation
+    with one that is compatible with tqdm.
+    via: https://stackoverflow.com/a/42424890/87207
+    """
+    old_print = print  # noqa: T202 [reserved word print used]
+
+    def new_print(*args, **kwargs):
+        # If tqdm.tqdm.write raises error, use builtin print
+        if disable_progress:
+            old_print(*args, **kwargs)
+        else:
+            try:
+                tqdm.tqdm.write(*args, **kwargs)
+            except Exception:
+                old_print(*args, **kwargs)
+
+    try:
+        # Globally replace print with new_print.
+        # Verified this works manually on Python 3.11:
+        #     >>> import inspect
+        #     >>> inspect.builtins
+        #     <module 'builtins' (built-in)>
+        inspect.builtins.print = new_print  # type: ignore
+        yield
+    finally:
+        inspect.builtins.print = old_print  # type: ignore
 
 
 def log_unsupported_format_error():
@@ -118,7 +159,7 @@ def log_unsupported_runtime_error():
     logger.error("-" * 80)
     logger.error(" Unsupported runtime or Python interpreter.")
     logger.error(" ")
-    logger.error(" capa supports running under Python 3.7 and higher.")
+    logger.error(" capa supports running under Python 3.8 and higher.")
     logger.error(" ")
     logger.error(
         " If you're seeing this message on the command line, please ensure you're running a supported Python version."

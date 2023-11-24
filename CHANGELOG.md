@@ -3,10 +3,198 @@
 ## master (unreleased)
 
 ### New Features
+- ghidra: add Ghidra feature extractor and supporting code #1770 @colton-gabertan
+- ghidra: add entry script helping users run capa against a loaded Ghidra database #1767 @mike-hunhoff
+- binja: add support for forwarded exports #1646 @xusheng6
+- binja: add support for symtab names #1504 @xusheng6
+- add com class/interface features #322 @Aayush-goel-04
 
 ### Breaking Changes
 
-### New Rules (20)
+### New Rules (30)
+
+- nursery/get-ntoskrnl-base-address @mr-tz
+- host-interaction/network/connectivity/set-tcp-connection-state @johnk3r
+- nursery/capture-process-snapshot-data @mr-tz
+- collection/network/capture-packets-using-sharppcap jakub.jozwiak@mandiant.com
+- nursery/communicate-with-kernel-module-via-netlink-socket-on-linux michael.hunhoff@mandiant.com
+- nursery/get-current-pid-on-linux michael.hunhoff@mandiant.com
+- nursery/get-file-system-information-on-linux michael.hunhoff@mandiant.com
+- nursery/get-password-database-entry-on-linux michael.hunhoff@mandiant.com
+- nursery/mark-thread-detached-on-linux michael.hunhoff@mandiant.com
+- nursery/persist-via-gnome-autostart-on-linux michael.hunhoff@mandiant.com
+- nursery/set-thread-name-on-linux michael.hunhoff@mandiant.com
+- load-code/dotnet/load-windows-common-language-runtime michael.hunhoff@mandiant.com blas.kojusner@mandiant.com jakub.jozwiak@mandiant.com
+- nursery/log-keystrokes-via-input-method-manager @mr-tz
+- nursery/encrypt-data-using-rc4-via-systemfunction032 richard.weiss@mandiant.com
+- nursery/add-value-to-global-atom-table @mr-tz
+- nursery/enumerate-processes-that-use-resource @Ana06
+- host-interaction/process/inject/allocate-or-change-rwx-memory @mr-tz
+- lib/allocate-or-change-rw-memory 0x534a@mailbox.org @mr-tz
+- lib/change-memory-protection @mr-tz
+- anti-analysis/anti-av/patch-antimalware-scan-interface-function jakub.jozwiak@mandiant.com
+- executable/dotnet-singlefile/bundled-with-dotnet-single-file-deployment sara.rincon@mandiant.com
+- internal/limitation/file/internal-dotnet-single-file-deployment-limitation sara.rincon@mandiant.com
+- data-manipulation/encoding/encode-data-using-add-xor-sub-operations jakub.jozwiak@mandiant.com
+- nursery/access-camera-in-dotnet-on-android michael.hunhoff@mandiant.com
+- nursery/capture-microphone-audio-in-dotnet-on-android michael.hunhoff@mandiant.com
+- nursery/capture-screenshot-in-dotnet-on-android michael.hunhoff@mandiant.com
+- nursery/check-for-incoming-call-in-dotnet-on-android michael.hunhoff@mandiant.com
+- nursery/check-for-outgoing-call-in-dotnet-on-android michael.hunhoff@mandiant.com
+- nursery/compiled-with-xamarin michael.hunhoff@mandiant.com
+- nursery/get-os-version-in-dotnet-on-android michael.hunhoff@mandiant.com
+-
+
+### Bug Fixes
+- ghidra: fix ints_to_bytes performance #1761 @mike-hunhoff
+- binja: improve function call site detection @xusheng6
+- binja: use binaryninja.load to open files @xusheng6
+- binja: bump binja version to 3.5 #1789 @xusheng6
+
+### capa explorer IDA Pro plugin
+
+### Development
+
+### Raw diffs
+- [capa v6.1.0...master](https://github.com/mandiant/capa/compare/v6.1.0...master)
+- [capa-rules v6.1.0...master](https://github.com/mandiant/capa-rules/compare/v6.1.0...master)
+
+## v6.1.0
+
+capa v6.1.0 is a bug fix release, most notably fixing unhandled exceptions in the capa explorer IDA Pro plugin.
+@Aayush-Goel-04 put a lot of effort into improving code quality and adding a script for rule authors.
+The script shows which features are present in a sample but not referenced by any existing rule.
+You could use this script to find opportunities for new rules.
+
+Speaking of new rules, we have eight additions, coming from Ronnie, Jakub, Moritz, Ervin, and still@teamt5.org!
+
+### New Features
+- ELF: implement import and export name extractor #1607 #1608 @Aayush-Goel-04
+- bump pydantic from 1.10.9 to 2.1.1 #1582 @Aayush-Goel-04
+- develop script to highlight features not used during matching #331 @Aayush-Goel-04
+
+### New Rules (8)
+
+- executable/pe/export/forwarded-export ronnie.salomonsen@mandiant.com
+- host-interaction/bootloader/get-uefi-variable jakub.jozwiak@mandiant.com
+- host-interaction/bootloader/set-uefi-variable jakub.jozwiak@mandiant.com
+- nursery/enumerate-device-drivers-on-linux @mr-tz
+- anti-analysis/anti-vm/vm-detection/check-for-foreground-window-switch ervin.ocampo@mandiant.com
+- linking/static/sqlite3/linked-against-cppsqlite3 still@teamt5.org
+- linking/static/sqlite3/linked-against-sqlite3 still@teamt5.org
+
+### Bug Fixes
+
+- rules: fix forwarded export characteristic #1656 @RonnieSalomonsen
+- Binary Ninja: Fix stack string detection #1473 @xusheng6
+- linter: skip native API check for NtProtectVirtualMemory #1675 @williballenthin 
+- OS: detect Android ELF files #1705 @williballenthin
+- ELF: fix parsing of symtab #1704 @williballenthin
+- result document: don't use deprecated pydantic functions #1718 @williballenthin
+- pytest: don't mark IDA tests as pytest tests #1719 @williballenthin
+
+### capa explorer IDA Pro plugin
+- fix unhandled exception when resolving rule path #1693 @mike-hunhoff
+
+### Raw diffs
+- [capa v6.0.0...v6.1.0](https://github.com/mandiant/capa/compare/v6.0.0...v6.1.0)
+- [capa-rules v6.0.0...v6.1.0](https://github.com/mandiant/capa-rules/compare/v6.0.0...v6.1.0)
+
+## v6.0.0
+
+capa v6.0 brings many bug fixes and quality improvements, including 64 rule updates and 26 new rules. We're now publishing to PyPI via [Trusted Publishing](https://blog.pypi.org/posts/2023-04-20-introducing-trusted-publishers/) and have migrated to using a `pyproject.toml` file. @Aayush-Goel-04 contributed a lot of new code across many files, so please welcome them to the project, along with @anders-v @crowface28 @dkelly2e @RonnieSalomonsen and @ejfocampo as first-time rule contributors!
+
+For those that use capa as a library, we've introduced some limited breaking changes that better represent data types (versus less-structured data like dictionaries and strings). With the recent deprecation, we've also dropped support for Python 3.7.
+
+### New Features
+- add script to detect feature overlap between new and existing capa rules [#1451](https://github.com/mandiant/capa/issues/1451) [@Aayush-Goel-04](https://github.com/aayush-goel-04)
+- extract forwarded exports from PE files #1624 @williballenthin
+- extract function and API names from ELF symtab entries @yelhamer https://github.com/mandiant/capa-rules/issues/736
+- use fancy box drawing characters for default output #1586 @williballenthin
+
+### Breaking Changes
+- use a class to represent Metadata (not dict) #1411 @Aayush-Goel-04 @manasghandat
+- use pathlib.Path to represent file paths #1534 @Aayush-Goel-04
+- Python 3.8 is now the minimum supported Python version #1578 @williballenthin
+- Require a Contributor License Agreement (CLA) for PRs going forward #1642 @williballenthin
+
+### New Rules (26)
+
+- load-code/shellcode/execute-shellcode-via-windows-callback-function ervin.ocampo@mandiant.com jakub.jozwiak@mandiant.com
+- nursery/execute-shellcode-via-indirect-call ronnie.salomonsen@mandiant.com
+- data-manipulation/encryption/aes/encrypt-data-using-aes-mixcolumns-step @mr-tz
+- linking/static/aplib/linked-against-aplib still@teamt5.org
+- communication/mailslot/read-from-mailslot nick.simonian@mandiant.com
+- nursery/hash-data-using-sha512managed-in-dotnet jonathanlepore@google.com
+- nursery/compiled-with-exescript jonathanlepore@google.com
+- nursery/check-for-sandbox-via-mac-address-ouis-in-dotnet jonathanlepore@google.com
+- host-interaction/hardware/enumerate-devices-by-category @mr-tz
+- host-interaction/service/continue-service @mr-tz
+- host-interaction/service/pause-service @mr-tz
+- persistence/exchange/act-as-exchange-transport-agent jakub.jozwiak@mandiant.com
+- host-interaction/file-system/create-virtual-file-system-in-dotnet jakub.jozwiak@mandiant.com
+- compiler/cx_freeze/compiled-with-cx_freeze @mr-tz jakub.jozwiak@mandiant.com
+- communication/socket/create-vmci-socket jakub.jozwiak@mandiant.com
+- persistence/office/act-as-excel-xll-add-in jakub.jozwiak@mandiant.com
+- persistence/office/act-as-office-com-add-in jakub.jozwiak@mandiant.com
+- persistence/office/act-as-word-wll-add-in jakub.jozwiak@mandiant.com
+- anti-analysis/anti-debugging/debugger-evasion/hide-thread-from-debugger michael.hunhoff@mandiant.com jakub.jozwiak@mandiant.com
+- host-interaction/memory/create-new-application-domain-in-dotnet jakub.jozwiak@mandiant.com
+- host-interaction/gui/switch-active-desktop jakub.jozwiak@mandiant.com
+- host-interaction/service/query-service-configuration @mr-tz
+- anti-analysis/anti-av/patch-event-tracing-for-windows-function jakub.jozwiak@mandiant.com
+- data-manipulation/encoding/xor/covertly-decode-and-write-data-to-windows-directory-using-indirect-calls dan.kelly@mandiant.com
+- linking/runtime-linking/resolve-function-by-brute-ratel-badger-hash jakub.jozwiak@mandiant.com
+
+### Bug Fixes
+- extractor: add a Binary Ninja test that asserts its version #1487 @xusheng6
+- extractor: update Binary Ninja stack string detection after the new constant outlining feature #1473 @xusheng6
+- extractor: update vivisect Arch extraction #1334 @mr-tz
+- extractor: avoid Binary Ninja exception when analyzing certain files #1441 @xusheng6 
+- symtab: fix struct.unpack() format for 64-bit ELF files @yelhamer
+- symtab: safeguard against ZeroDivisionError for files containing a symtab with a null entry size @yelhamer
+- improve ELF strtab and needed parsing @mr-tz
+- better handle exceptional cases when parsing ELF files #1458 @Aayush-Goel-04
+- improved testing coverage for Binary Ninja backend #1446 @Aayush-Goel-04
+- add logging and print redirect to tqdm for capa main #749 @Aayush-Goel-04
+- extractor: fix binja installation path detection does not work with Python 3.11
+- tests: refine the IDA test runner script #1513 @williballenthin
+- output: don't leave behind traces of progress bar @williballenthin
+- import-to-ida: fix bug introduced with JSON report changes in v5 #1584 @williballenthin
+- main: don't show spinner when emitting debug messages #1636 @williballenthin
+- rules: add forwarded export characteristics to rule syntax file scope #1653 @RonnieSalomonsen
+
+### capa explorer IDA Pro plugin
+
+### Development
+- update ATT&CK/MBC data for linting #1568 @mr-tz
+- log time taken to analyze each function #1290 @williballenthin
+- tests: make fixture available via conftest.py #1592 @williballenthin
+- publish via PyPI trusted publishing #1491 @williballenthin
+- migrate to pyproject.toml #1301 @williballenthin
+- use [pre-commit](https://pre-commit.com/) to invoke linters #1579 @williballenthin
+
+
+### Raw diffs
+- [capa v5.1.0...v6.0.0](https://github.com/mandiant/capa/compare/v5.1.0...v6.0.0)
+- [capa-rules v5.1.0...v6.0.0](https://github.com/mandiant/capa-rules/compare/v5.1.0...v6.0.0)
+
+## v5.1.0
+capa version 5.1.0 adds a Protocol Buffers (protobuf) format for result documents. Additionally, the [Vector35](https://vector35.com/) team contributed a new feature extractor using Binary Ninja. Other new features are a new CLI flag to override the detected operating system, functionality to read and render existing result documents, and a output color format that's easier to read.
+
+Over 25 capa rules have been added and improved.
+
+Thanks for all the support, especially to @xusheng6, @captainGeech42, @ggold7046, @manasghandat, @ooprathamm, @linpeiyu164, @yelhamer, @HongThatCong, @naikordian, @stevemk14ebr, @emtuls, @raymondlleong, @bkojusner, @joren485, and everyone else who submitted bugs and provided feedback!
+
+### New Features
+- add protobuf format for result documents #1219 @williballenthin @mr-tz 
+- extractor: add Binary Ninja feature extractor @xusheng6
+- new cli flag `--os` to override auto-detected operating system for a sample @captainGeech42
+- change colour/highlight to "cyan" instead of "blue" for better readability #1384 @ggold7046
+- add new format to parse output json back to capa #1396 @ooprathamm
+- parse ELF symbols' names to guess OS #1403 @yelhamer
+
+### New Rules (26)
 
 - persistence/scheduled-tasks/schedule-task-via-at joren485
 - data-manipulation/prng/generate-random-numbers-via-rtlgenrandom william.ballenthin@mandiant.com
@@ -28,22 +216,28 @@
 - nursery/hash-data-using-ripemd256 raymond.leong@mandiant.com
 - nursery/hash-data-using-ripemd320 raymond.leong@mandiant.com
 - nursery/set-web-proxy-in-dotnet michael.hunhoff@mandiant.com
--
+- nursery/check-for-windows-sandbox-via-subdirectory echernofsky@google.com
+- nursery/enumerate-pe-sections-in-dotnet @mr-tz
+- nursery/destroy-software-breakpoint-capability echernofsky@google.com
+- nursery/send-data-to-internet michael.hunhoff@mandiant.com
+- nursery/compiled-with-cx_freeze @mr-tz
+- nursery/contain-a-thread-local-storage-tls-section-in-dotnet michael.hunhoff@mandiant.com
 
 ### Bug Fixes
+- extractor: interface of cache modified to prevent extracting file and global features multiple times @stevemk14ebr
+- extractor: removed '.dynsym' as the library name for ELF imports #1318 @stevemk14ebr 
 - extractor: fix vivisect loop detection corner case #1310 @mr-tz
 - match: extend OS characteristic to match OS_ANY to all supported OSes #1324 @mike-hunhoff
-- extractor: fix IDA and vivisect string and bytes features overlap and tests #1327 #1336 @xusheng6 
+- extractor: fix IDA and vivisect string and bytes features overlap and tests #1327 #1336 @xusheng6
 
 ### capa explorer IDA Pro plugin
+- rule generator plugin now loads faster when jumping between functions @stevemk14ebr
 - fix exception when plugin loaded in IDA hosted under idat #1341 @mike-hunhoff
 - improve embedded PE detection performance and reduce FP potential #1344 @mike-hunhoff
 
-### Development
-
 ### Raw diffs
-- [capa v5.0.0...master](https://github.com/mandiant/capa/compare/v5.0.0...master)
-- [capa-rules v5.0.0...master](https://github.com/mandiant/capa-rules/compare/v5.0.0...master)
+- [capa v5.0.0...v5.1.0](https://github.com/mandiant/capa/compare/v5.0.0...v5.1.0)
+- [capa-rules v5.0.0...v5.1.0](https://github.com/mandiant/capa-rules/compare/v5.0.0...v5.1.0)
 
 
 ## v5.0.0 (2023-02-08)

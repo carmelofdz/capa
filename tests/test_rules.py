@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -40,8 +40,8 @@ ADDR4 = capa.features.address.AbsoluteVirtualAddress(0x401004)
 
 def test_rule_ctor():
     r = capa.rules.Rule("test rule", capa.rules.FUNCTION_SCOPE, Or([Number(1)]), {})
-    assert r.evaluate({Number(0): {ADDR1}}) == False
-    assert r.evaluate({Number(1): {ADDR2}}) == True
+    assert bool(r.evaluate({Number(0): {ADDR1}})) is False
+    assert bool(r.evaluate({Number(1): {ADDR2}})) is True
 
 
 def test_rule_yaml():
@@ -63,10 +63,10 @@ def test_rule_yaml():
         """
     )
     r = capa.rules.Rule.from_yaml(rule)
-    assert r.evaluate({Number(0): {ADDR1}}) == False
-    assert r.evaluate({Number(0): {ADDR1}, Number(1): {ADDR1}}) == False
-    assert r.evaluate({Number(0): {ADDR1}, Number(1): {ADDR1}, Number(2): {ADDR1}}) == True
-    assert r.evaluate({Number(0): {ADDR1}, Number(1): {ADDR1}, Number(2): {ADDR1}, Number(3): {ADDR1}}) == True
+    assert bool(r.evaluate({Number(0): {ADDR1}})) is False
+    assert bool(r.evaluate({Number(0): {ADDR1}, Number(1): {ADDR1}})) is False
+    assert bool(r.evaluate({Number(0): {ADDR1}, Number(1): {ADDR1}, Number(2): {ADDR1}})) is True
+    assert bool(r.evaluate({Number(0): {ADDR1}, Number(1): {ADDR1}, Number(2): {ADDR1}, Number(3): {ADDR1}})) is True
 
 
 def test_rule_yaml_complex():
@@ -89,8 +89,8 @@ def test_rule_yaml_complex():
         """
     )
     r = capa.rules.Rule.from_yaml(rule)
-    assert r.evaluate({Number(5): {ADDR1}, Number(6): {ADDR1}, Number(7): {ADDR1}, Number(8): {ADDR1}}) == True
-    assert r.evaluate({Number(6): {ADDR1}, Number(7): {ADDR1}, Number(8): {ADDR1}}) == False
+    assert bool(r.evaluate({Number(5): {ADDR1}, Number(6): {ADDR1}, Number(7): {ADDR1}, Number(8): {ADDR1}})) is True
+    assert bool(r.evaluate({Number(6): {ADDR1}, Number(7): {ADDR1}, Number(8): {ADDR1}})) is False
 
 
 def test_rule_descriptions():
@@ -167,8 +167,8 @@ def test_rule_yaml_not():
         """
     )
     r = capa.rules.Rule.from_yaml(rule)
-    assert r.evaluate({Number(1): {ADDR1}}) == True
-    assert r.evaluate({Number(1): {ADDR1}, Number(2): {ADDR1}}) == False
+    assert bool(r.evaluate({Number(1): {ADDR1}})) is True
+    assert bool(r.evaluate({Number(1): {ADDR1}, Number(2): {ADDR1}})) is False
 
 
 def test_rule_yaml_count():
@@ -182,9 +182,9 @@ def test_rule_yaml_count():
         """
     )
     r = capa.rules.Rule.from_yaml(rule)
-    assert r.evaluate({Number(100): set()}) == False
-    assert r.evaluate({Number(100): {ADDR1}}) == True
-    assert r.evaluate({Number(100): {ADDR1, ADDR2}}) == False
+    assert bool(r.evaluate({Number(100): set()})) is False
+    assert bool(r.evaluate({Number(100): {ADDR1}})) is True
+    assert bool(r.evaluate({Number(100): {ADDR1, ADDR2}})) is False
 
 
 def test_rule_yaml_count_range():
@@ -198,10 +198,10 @@ def test_rule_yaml_count_range():
         """
     )
     r = capa.rules.Rule.from_yaml(rule)
-    assert r.evaluate({Number(100): set()}) == False
-    assert r.evaluate({Number(100): {ADDR1}}) == True
-    assert r.evaluate({Number(100): {ADDR1, ADDR2}}) == True
-    assert r.evaluate({Number(100): {ADDR1, ADDR2, ADDR3}}) == False
+    assert bool(r.evaluate({Number(100): set()})) is False
+    assert bool(r.evaluate({Number(100): {ADDR1}})) is True
+    assert bool(r.evaluate({Number(100): {ADDR1, ADDR2}})) is True
+    assert bool(r.evaluate({Number(100): {ADDR1, ADDR2, ADDR3}})) is False
 
 
 def test_rule_yaml_count_string():
@@ -215,10 +215,10 @@ def test_rule_yaml_count_string():
         """
     )
     r = capa.rules.Rule.from_yaml(rule)
-    assert r.evaluate({String("foo"): set()}) == False
-    assert r.evaluate({String("foo"): {ADDR1}}) == False
-    assert r.evaluate({String("foo"): {ADDR1, ADDR2}}) == True
-    assert r.evaluate({String("foo"): {ADDR1, ADDR2, ADDR3}}) == False
+    assert bool(r.evaluate({String("foo"): set()})) is False
+    assert bool(r.evaluate({String("foo"): {ADDR1}})) is False
+    assert bool(r.evaluate({String("foo"): {ADDR1, ADDR2}})) is True
+    assert bool(r.evaluate({String("foo"): {ADDR1, ADDR2, ADDR3}})) is False
 
 
 def test_invalid_rule_feature():
@@ -344,7 +344,7 @@ def test_subscope_rules():
 
 def test_duplicate_rules():
     with pytest.raises(capa.rules.InvalidRule):
-        rules = capa.rules.RuleSet(
+        _ = capa.rules.RuleSet(
             [
                 capa.rules.Rule.from_yaml(
                     textwrap.dedent(
@@ -374,7 +374,7 @@ def test_duplicate_rules():
 
 def test_missing_dependency():
     with pytest.raises(capa.rules.InvalidRule):
-        rules = capa.rules.RuleSet(
+        _ = capa.rules.RuleSet(
             [
                 capa.rules.Rule.from_yaml(
                     textwrap.dedent(
@@ -393,7 +393,7 @@ def test_missing_dependency():
 
 def test_invalid_rules():
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -406,7 +406,7 @@ def test_invalid_rules():
         )
 
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -420,7 +420,7 @@ def test_invalid_rules():
 
     # att&ck and mbc must be lists
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -433,7 +433,7 @@ def test_invalid_rules():
             )
         )
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -466,12 +466,12 @@ def test_number_symbol():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (Number(1) in children) == True
-    assert (Number(0xFFFFFFFF) in children) == True
-    assert (Number(2, description="symbol name") in children) == True
-    assert (Number(3, description="symbol name") in children) == True
-    assert (Number(4, description="symbol name = another name") in children) == True
-    assert (Number(0x100, description="symbol name") in children) == True
+    assert (Number(1) in children) is True
+    assert (Number(0xFFFFFFFF) in children) is True
+    assert (Number(2, description="symbol name") in children) is True
+    assert (Number(3, description="symbol name") in children) is True
+    assert (Number(4, description="symbol name = another name") in children) is True
+    assert (Number(0x100, description="symbol name") in children) is True
 
 
 def test_count_number_symbol():
@@ -488,16 +488,16 @@ def test_count_number_symbol():
         """
     )
     r = capa.rules.Rule.from_yaml(rule)
-    assert r.evaluate({Number(2): set()}) == False
-    assert r.evaluate({Number(2): {ADDR1}}) == True
-    assert r.evaluate({Number(2): {ADDR1, ADDR2}}) == False
-    assert r.evaluate({Number(0x100, description="symbol name"): {ADDR1}}) == False
-    assert r.evaluate({Number(0x100, description="symbol name"): {ADDR1, ADDR2, ADDR3}}) == True
+    assert bool(r.evaluate({Number(2): set()})) is False
+    assert bool(r.evaluate({Number(2): {ADDR1}})) is True
+    assert bool(r.evaluate({Number(2): {ADDR1, ADDR2}})) is False
+    assert bool(r.evaluate({Number(0x100, description="symbol name"): {ADDR1}})) is False
+    assert bool(r.evaluate({Number(0x100, description="symbol name"): {ADDR1, ADDR2, ADDR3}})) is True
 
 
 def test_invalid_number():
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -510,7 +510,7 @@ def test_invalid_number():
         )
 
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -523,7 +523,7 @@ def test_invalid_number():
         )
 
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -553,11 +553,11 @@ def test_offset_symbol():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (Offset(1) in children) == True
-    assert (Offset(2, description="symbol name") in children) == True
-    assert (Offset(3, description="symbol name") in children) == True
-    assert (Offset(4, description="symbol name = another name") in children) == True
-    assert (Offset(0x100, description="symbol name") in children) == True
+    assert (Offset(1) in children) is True
+    assert (Offset(2, description="symbol name") in children) is True
+    assert (Offset(3, description="symbol name") in children) is True
+    assert (Offset(4, description="symbol name = another name") in children) is True
+    assert (Offset(0x100, description="symbol name") in children) is True
 
 
 def test_count_offset_symbol():
@@ -574,16 +574,16 @@ def test_count_offset_symbol():
         """
     )
     r = capa.rules.Rule.from_yaml(rule)
-    assert r.evaluate({Offset(2): set()}) == False
-    assert r.evaluate({Offset(2): {ADDR1}}) == True
-    assert r.evaluate({Offset(2): {ADDR1, ADDR2}}) == False
-    assert r.evaluate({Offset(0x100, description="symbol name"): {ADDR1}}) == False
-    assert r.evaluate({Offset(0x100, description="symbol name"): {ADDR1, ADDR2, ADDR3}}) == True
+    assert bool(r.evaluate({Offset(2): set()})) is False
+    assert bool(r.evaluate({Offset(2): {ADDR1}})) is True
+    assert bool(r.evaluate({Offset(2): {ADDR1, ADDR2}})) is False
+    assert bool(r.evaluate({Offset(0x100, description="symbol name"): {ADDR1}})) is False
+    assert bool(r.evaluate({Offset(0x100, description="symbol name"): {ADDR1, ADDR2, ADDR3}})) is True
 
 
 def test_invalid_offset():
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -596,7 +596,7 @@ def test_invalid_offset():
         )
 
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -609,7 +609,7 @@ def test_invalid_offset():
         )
 
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -624,7 +624,7 @@ def test_invalid_offset():
 
 def test_invalid_string_values_int():
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -637,7 +637,7 @@ def test_invalid_string_values_int():
         )
 
     with pytest.raises(capa.rules.InvalidRule):
-        r = capa.rules.Rule.from_yaml(
+        _ = capa.rules.Rule.from_yaml(
             textwrap.dedent(
                 """
                 rule:
@@ -664,8 +664,8 @@ def test_explicit_string_values_int():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (String("123") in children) == True
-    assert (String("0x123") in children) == True
+    assert (String("123") in children) is True
+    assert (String("0x123") in children) is True
 
 
 def test_string_values_special_characters():
@@ -683,8 +683,8 @@ def test_string_values_special_characters():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (String("hello\r\nworld") in children) == True
-    assert (String("bye\nbye") in children) == True
+    assert (String("hello\r\nworld") in children) is True
+    assert (String("bye\nbye") in children) is True
 
 
 def test_substring_feature():
@@ -702,9 +702,9 @@ def test_substring_feature():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (Substring("abc") in children) == True
-    assert (Substring("def") in children) == True
-    assert (Substring("gh\ni") in children) == True
+    assert (Substring("abc") in children) is True
+    assert (Substring("def") in children) is True
+    assert (Substring("gh\ni") in children) is True
 
 
 def test_substring_description():
@@ -721,7 +721,7 @@ def test_substring_description():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (Substring("abc") in children) == True
+    assert (Substring("abc") in children) is True
 
 
 def test_filter_rules():
@@ -874,12 +874,12 @@ def test_rules_namespace_dependencies():
         ),
     ]
 
-    r3 = set(map(lambda r: r.name, capa.rules.get_rules_and_dependencies(rules, "rule 3")))
+    r3 = {r.name for r in capa.rules.get_rules_and_dependencies(rules, "rule 3")}
     assert "rule 1" in r3
     assert "rule 2" not in r3
     assert "rule 4" not in r3
 
-    r4 = set(map(lambda r: r.name, capa.rules.get_rules_and_dependencies(rules, "rule 4")))
+    r4 = {r.name for r in capa.rules.get_rules_and_dependencies(rules, "rule 4")}
     assert "rule 1" in r4
     assert "rule 2" in r4
     assert "rule 3" not in r4
@@ -902,9 +902,9 @@ def test_function_name_features():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (FunctionName("strcpy") in children) == True
-    assert (FunctionName("strcmp", description="copy from here to there") in children) == True
-    assert (FunctionName("strdup", description="duplicate a string") in children) == True
+    assert (FunctionName("strcpy") in children) is True
+    assert (FunctionName("strcmp", description="copy from here to there") in children) is True
+    assert (FunctionName("strdup", description="duplicate a string") in children) is True
 
 
 def test_os_features():
@@ -921,8 +921,8 @@ def test_os_features():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (OS(OS_WINDOWS) in children) == True
-    assert (OS(OS_LINUX) not in children) == True
+    assert (OS(OS_WINDOWS) in children) is True
+    assert (OS(OS_LINUX) not in children) is True
 
 
 def test_format_features():
@@ -939,8 +939,8 @@ def test_format_features():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (Format(FORMAT_PE) in children) == True
-    assert (Format(FORMAT_ELF) not in children) == True
+    assert (Format(FORMAT_PE) in children) is True
+    assert (Format(FORMAT_ELF) not in children) is True
 
 
 def test_arch_features():
@@ -957,8 +957,8 @@ def test_arch_features():
     )
     r = capa.rules.Rule.from_yaml(rule)
     children = list(r.statement.get_children())
-    assert (Arch(ARCH_AMD64) in children) == True
-    assert (Arch(ARCH_I386) not in children) == True
+    assert (Arch(ARCH_AMD64) in children) is True
+    assert (Arch(ARCH_I386) not in children) is True
 
 
 def test_property_access():
@@ -973,10 +973,10 @@ def test_property_access():
             """
         )
     )
-    assert r.evaluate({Property("System.IO.FileInfo::Length", access=FeatureAccess.READ): {ADDR1}}) == True
+    assert bool(r.evaluate({Property("System.IO.FileInfo::Length", access=FeatureAccess.READ): {ADDR1}})) is True
 
-    assert r.evaluate({Property("System.IO.FileInfo::Length"): {ADDR1}}) == False
-    assert r.evaluate({Property("System.IO.FileInfo::Length", access=FeatureAccess.WRITE): {ADDR1}}) == False
+    assert bool(r.evaluate({Property("System.IO.FileInfo::Length"): {ADDR1}})) is False
+    assert bool(r.evaluate({Property("System.IO.FileInfo::Length", access=FeatureAccess.WRITE): {ADDR1}})) is False
 
 
 def test_property_access_symbol():
@@ -992,8 +992,83 @@ def test_property_access_symbol():
         )
     )
     assert (
-        r.evaluate(
-            {Property("System.IO.FileInfo::Length", access=FeatureAccess.READ, description="some property"): {ADDR1}}
+        bool(
+            r.evaluate(
+                {
+                    Property("System.IO.FileInfo::Length", access=FeatureAccess.READ, description="some property"): {
+                        ADDR1
+                    }
+                }
+            )
         )
-        == True
+        is True
     )
+
+
+def test_translate_com_features():
+    r = capa.rules.Rule.from_yaml(
+        textwrap.dedent(
+            """
+            rule:
+                meta:
+                    name: test rule
+                features:
+                    - com/class: WICPngDecoder
+                    # 389ea17b-5078-4cde-b6ef-25c15175c751 WICPngDecoder
+                    # e018945b-aa86-4008-9bd4-6777a1e40c11 WICPngDecoder
+            """
+        )
+    )
+    com_name = "WICPngDecoder"
+    com_features = [
+        capa.features.common.Bytes(b"{\xa1\x9e8xP\xdeL\xb6\xef%\xc1Qu\xc7Q", f"CLSID_{com_name} as bytes"),
+        capa.features.common.StringFactory("389ea17b-5078-4cde-b6ef-25c15175c751", f"CLSID_{com_name} as GUID string"),
+        capa.features.common.Bytes(b"[\x94\x18\xe0\x86\xaa\x08@\x9b\xd4gw\xa1\xe4\x0c\x11", f"IID_{com_name} as bytes"),
+        capa.features.common.StringFactory("e018945b-aa86-4008-9bd4-6777a1e40c11", f"IID_{com_name} as GUID string"),
+    ]
+    assert set(com_features) == set(r.statement.get_children())
+
+
+def test_invalid_com_features():
+    # test for unknown COM class
+    with pytest.raises(capa.rules.InvalidRule):
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule
+                    features:
+                        - com/class: invalid_com
+                """
+            )
+        )
+
+    # test for unknown COM interface
+    with pytest.raises(capa.rules.InvalidRule):
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule
+                    features:
+                        - com/interface: invalid_com
+                """
+            )
+        )
+
+    # test for invalid COM type
+    # valid_com_types = "class", "interface"
+    with pytest.raises(capa.rules.InvalidRule):
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule
+                    features:
+                        - com/invalid_COM_type: WICPngDecoder
+                """
+            )
+        )

@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 """
-Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
 You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -67,8 +67,9 @@ Example::
 import os
 import sys
 import logging
-import os.path
 import argparse
+from typing import Tuple
+from pathlib import Path
 
 import capa.main
 import capa.rules
@@ -80,8 +81,10 @@ import capa.render.verbose as v
 import capa.features.common
 import capa.features.freeze
 import capa.features.address
+import capa.features.extractors.pefile
 import capa.features.extractors.base_extractor
 from capa.helpers import log_unsupported_runtime_error
+from capa.features.extractors.base_extractor import FunctionHandle
 
 logger = logging.getLogger("capa.show-features")
 
@@ -95,14 +98,18 @@ def main(argv=None):
         argv = sys.argv[1:]
 
     parser = argparse.ArgumentParser(description="Show the features that capa extracts from the given sample")
-    capa.main.install_common_args(parser, wanted={"format", "sample", "signatures", "backend"})
+    capa.main.install_common_args(parser, wanted={"format", "os", "sample", "signatures", "backend"})
 
     parser.add_argument("-F", "--function", type=str, help="Show features for specific function")
     args = parser.parse_args(args=argv)
     capa.main.handle_common_args(args)
 
+    if args.function and args.backend == "pefile":
+        print("pefile backend does not support extracting function features")
+        return -1
+
     try:
-        taste = capa.helpers.get_file_taste(args.sample)
+        taste = capa.helpers.get_file_taste(Path(args.sample))
     except IOError as e:
         logger.error("%s", str(e))
         return -1
@@ -113,14 +120,15 @@ def main(argv=None):
         logger.error("%s", str(e))
         return -1
 
-    if (args.format == "freeze") or (args.format == "auto" and capa.features.freeze.is_freeze(taste)):
-        with open(args.sample, "rb") as f:
-            extractor = capa.features.freeze.load(f.read())
+    if (args.format == "freeze") or (
+        args.format == capa.features.common.FORMAT_AUTO and capa.features.freeze.is_freeze(taste)
+    ):
+        extractor = capa.features.freeze.load(Path(args.sample).read_bytes())
     else:
         should_save_workspace = os.environ.get("CAPA_SAVE_WORKSPACE") not in ("0", "no", "NO", "n", None)
         try:
             extractor = capa.main.get_extractor(
-                args.sample, args.format, args.backend, sig_paths, should_save_workspace
+                args.sample, args.format, args.os, args.backend, sig_paths, should_save_workspace
             )
         except capa.exceptions.UnsupportedFormatError:
             capa.helpers.log_unsupported_format_error()
@@ -136,11 +144,15 @@ def main(argv=None):
         for feature, addr in extractor.extract_file_features():
             print(f"file: {format_address(addr)}: {feature}")
 
-    function_handles = tuple(extractor.get_functions())
+    function_handles: Tuple[FunctionHandle, ...]
+    if isinstance(extractor, capa.features.extractors.pefile.PefileFeatureExtractor):
+        # pefile extractor doesn't extract function features
+        function_handles = ()
+    else:
+        function_handles = tuple(extractor.get_functions())
 
     if args.function:
         if args.format == "freeze":
-            # TODO fix
             function_handles = tuple(filter(lambda fh: fh.address == args.function, function_handles))
         else:
             function_handles = tuple(filter(lambda fh: format_address(fh.address) == args.function, function_handles))
@@ -181,6 +193,21 @@ def ida_main():
         if len(function_handles) == 0:
             print(f"{hex(function)} not a function")
             return -1
+
+    print_features(function_handles, extractor)
+
+    return 0
+
+
+def ghidra_main():
+    import capa.features.extractors.ghidra.extractor
+
+    extractor = capa.features.extractors.ghidra.extractor.GhidraFeatureExtractor()
+
+    for feature, addr in extractor.extract_file_features():
+        print(f"file: {format_address(addr)}: {feature}")
+
+    function_handles = tuple(extractor.get_functions())
 
     print_features(function_handles, extractor)
 
@@ -234,7 +261,9 @@ def print_features(functions, extractor: capa.features.extractors.base_extractor
 
 
 if __name__ == "__main__":
-    if capa.main.is_runtime_ida():
+    if capa.helpers.is_runtime_ida():
         ida_main()
+    elif capa.helpers.is_runtime_ghidra():
+        ghidra_main()
     else:
         sys.exit(main())

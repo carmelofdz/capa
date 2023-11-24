@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -92,7 +92,6 @@ def is_mov_imm_to_stack(instr: envi.archs.i386.disasm.i386Opcode) -> bool:
     if not src.isImmed():
         return False
 
-    # TODO what about 64-bit operands?
     if not isinstance(dst, envi.archs.i386.disasm.i386SibOper) and not isinstance(
         dst, envi.archs.i386.disasm.i386RegMemOper
     ):
