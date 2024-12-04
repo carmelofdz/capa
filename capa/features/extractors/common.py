@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2021 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -6,10 +6,11 @@
 #  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
 import io
+import re
 import logging
 import binascii
 import contextlib
-from typing import Tuple, Iterator
+from typing import Iterator
 
 import pefile
 
@@ -41,9 +42,10 @@ logger = logging.getLogger(__name__)
 MATCH_PE = b"MZ"
 MATCH_ELF = b"\x7fELF"
 MATCH_RESULT = b'{"meta":'
+MATCH_JSON_OBJECT = b'{"'
 
 
-def extract_file_strings(buf, **kwargs) -> Iterator[Tuple[String, Address]]:
+def extract_file_strings(buf: bytes, **kwargs) -> Iterator[tuple[String, Address]]:
     """
     extract ASCII and UTF-16 LE strings from file
     """
@@ -54,7 +56,7 @@ def extract_file_strings(buf, **kwargs) -> Iterator[Tuple[String, Address]]:
         yield String(s.s), FileOffsetAddress(s.offset)
 
 
-def extract_format(buf) -> Iterator[Tuple[Feature, Address]]:
+def extract_format(buf: bytes) -> Iterator[tuple[Feature, Address]]:
     if buf.startswith(MATCH_PE):
         yield Format(FORMAT_PE), NO_ADDRESS
     elif buf.startswith(MATCH_ELF):
@@ -63,16 +65,21 @@ def extract_format(buf) -> Iterator[Tuple[Feature, Address]]:
         yield Format(FORMAT_FREEZE), NO_ADDRESS
     elif buf.startswith(MATCH_RESULT):
         yield Format(FORMAT_RESULT), NO_ADDRESS
+    elif re.sub(rb"\s", b"", buf[:20]).startswith(MATCH_JSON_OBJECT):
+        # potential start of JSON object data without whitespace
+        # we don't know what it is exactly, but may support it (e.g. a dynamic CAPE sandbox report)
+        # skip verdict here and let subsequent code analyze this further
+        return
     else:
         # we likely end up here:
         #  1. handling a file format (e.g. macho)
         #
         # for (1), this logic will need to be updated as the format is implemented.
-        logger.debug("unsupported file format: %s", binascii.hexlify(buf[:4]).decode("ascii"))
+        logger.debug("unknown file format: %s", buf[:4].hex())
         return
 
 
-def extract_arch(buf) -> Iterator[Tuple[Feature, Address]]:
+def extract_arch(buf) -> Iterator[tuple[Feature, Address]]:
     if buf.startswith(MATCH_PE):
         yield from capa.features.extractors.pefile.extract_file_arch(pe=pefile.PE(data=buf))
 
@@ -104,7 +111,7 @@ def extract_arch(buf) -> Iterator[Tuple[Feature, Address]]:
         return
 
 
-def extract_os(buf, os=OS_AUTO) -> Iterator[Tuple[Feature, Address]]:
+def extract_os(buf, os=OS_AUTO) -> Iterator[tuple[Feature, Address]]:
     if os != OS_AUTO:
         yield OS(os), NO_ADDRESS
 

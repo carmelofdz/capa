@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -8,7 +8,7 @@
 
 import string
 import struct
-from typing import Tuple, Iterator
+from typing import Iterator
 
 import idaapi
 
@@ -80,19 +80,19 @@ def bb_contains_stackstring(f: idaapi.func_t, bb: idaapi.BasicBlock) -> bool:
     return False
 
 
-def extract_bb_stackstring(fh: FunctionHandle, bbh: BBHandle) -> Iterator[Tuple[Feature, Address]]:
+def extract_bb_stackstring(fh: FunctionHandle, bbh: BBHandle) -> Iterator[tuple[Feature, Address]]:
     """extract stackstring indicators from basic block"""
     if bb_contains_stackstring(fh.inner, bbh.inner):
         yield Characteristic("stack string"), bbh.address
 
 
-def extract_bb_tight_loop(fh: FunctionHandle, bbh: BBHandle) -> Iterator[Tuple[Feature, Address]]:
+def extract_bb_tight_loop(fh: FunctionHandle, bbh: BBHandle) -> Iterator[tuple[Feature, Address]]:
     """extract tight loop indicators from a basic block"""
     if capa.features.extractors.ida.helpers.is_basic_block_tight_loop(bbh.inner):
         yield Characteristic("tight loop"), bbh.address
 
 
-def extract_features(fh: FunctionHandle, bbh: BBHandle) -> Iterator[Tuple[Feature, Address]]:
+def extract_features(fh: FunctionHandle, bbh: BBHandle) -> Iterator[tuple[Feature, Address]]:
     """extract basic block features"""
     for bb_handler in BASIC_BLOCK_HANDLERS:
         for feature, addr in bb_handler(fh, bbh):

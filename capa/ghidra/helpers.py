@@ -8,7 +8,6 @@
 import logging
 import datetime
 import contextlib
-from typing import List
 from pathlib import Path
 
 import capa
@@ -112,7 +111,7 @@ def get_file_sha256():
     return currentProgram().getExecutableSHA256()  # type: ignore [name-defined] # noqa: F821
 
 
-def collect_metadata(rules: List[Path]):
+def collect_metadata(rules: list[Path]):
     md5 = get_file_md5()
     sha256 = get_file_sha256()
 
@@ -143,17 +142,18 @@ def collect_metadata(rules: List[Path]):
             sha256=sha256,
             path=currentProgram().getExecutablePath(),  # type: ignore [name-defined] # noqa: F821
         ),
-        analysis=rdoc.Analysis(
+        flavor=rdoc.Flavor.STATIC,
+        analysis=rdoc.StaticAnalysis(
             format=currentProgram().getExecutableFormat(),  # type: ignore [name-defined] # noqa: F821
             arch=arch,
             os=os,
             extractor="ghidra",
             rules=tuple(r.resolve().absolute().as_posix() for r in rules),
-            base_address=capa.features.freeze.Address.from_capa(currentProgram().getImageBase().getOffset()),  # type: ignore [name-defined] # noqa: F821
-            layout=rdoc.Layout(
+            base_address=capa.features.freeze.Address.from_capa(AbsoluteVirtualAddress(currentProgram().getImageBase().getOffset())),  # type: ignore [name-defined] # noqa: F821
+            layout=rdoc.StaticLayout(
                 functions=(),
             ),
-            feature_counts=rdoc.FeatureCounts(file=0, functions=()),
+            feature_counts=rdoc.StaticFeatureCounts(file=0, functions=()),
             library_functions=(),
         ),
     )

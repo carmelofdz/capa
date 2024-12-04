@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -6,10 +6,11 @@
 #  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
 import functools
-from typing import Any, Dict, Tuple, Iterator, Optional
+from typing import Any, Iterator, Optional
 
 import idc
 import idaapi
+import ida_nalt
 import idautils
 import ida_bytes
 import ida_segment
@@ -17,24 +18,52 @@ import ida_segment
 from capa.features.address import AbsoluteVirtualAddress
 from capa.features.extractors.base_extractor import FunctionHandle
 
+IDA_NALT_ENCODING = ida_nalt.get_default_encoding_idx(ida_nalt.BPU_1B)  # use one byte-per-character encoding
 
-def find_byte_sequence(start: int, end: int, seq: bytes) -> Iterator[int]:
-    """yield all ea of a given byte sequence
 
-    args:
-        start: min virtual address
-        end: max virtual address
-        seq: bytes to search e.g. b"\x01\x03"
-    """
-    seqstr = " ".join([f"{b:02x}" for b in seq])
-    while True:
-        # TODO(mike-hunhoff): find_binary is deprecated. Please use ida_bytes.bin_search() instead.
-        # https://github.com/mandiant/capa/issues/1606
-        ea = idaapi.find_binary(start, end, seqstr, 0, idaapi.SEARCH_DOWN)
-        if ea == idaapi.BADADDR:
-            break
-        start = ea + 1
-        yield ea
+if hasattr(ida_bytes, "parse_binpat_str"):
+    # TODO (mr): use find_bytes
+    # https://github.com/mandiant/capa/issues/2339
+    def find_byte_sequence(start: int, end: int, seq: bytes) -> Iterator[int]:
+        """yield all ea of a given byte sequence
+
+        args:
+            start: min virtual address
+            end: max virtual address
+            seq: bytes to search e.g. b"\x01\x03"
+        """
+        patterns = ida_bytes.compiled_binpat_vec_t()
+
+        seqstr = " ".join([f"{b:02x}" for b in seq])
+        err = ida_bytes.parse_binpat_str(patterns, 0, seqstr, 16, IDA_NALT_ENCODING)
+
+        if err:
+            return
+
+        while True:
+            ea, _ = ida_bytes.bin_search(start, end, patterns, ida_bytes.BIN_SEARCH_FORWARD)
+            if ea == idaapi.BADADDR:
+                break
+            start = ea + 1
+            yield ea
+
+else:
+    # for IDA 7.5 and older; using deprecated find_binary instead of bin_search
+    def find_byte_sequence(start: int, end: int, seq: bytes) -> Iterator[int]:
+        """yield all ea of a given byte sequence
+
+        args:
+            start: min virtual address
+            end: max virtual address
+            seq: bytes to search e.g. b"\x01\x03"
+        """
+        seqstr = " ".join([f"{b:02x}" for b in seq])
+        while True:
+            ea = idaapi.find_binary(start, end, seqstr, 0, idaapi.SEARCH_DOWN)
+            if ea == idaapi.BADADDR:
+                break
+            start = ea + 1
+            yield ea
 
 
 def get_functions(
@@ -95,9 +124,9 @@ def inspect_import(imports, library, ea, function, ordinal):
     return True
 
 
-def get_file_imports() -> Dict[int, Tuple[str, str, int]]:
+def get_file_imports() -> dict[int, tuple[str, str, int]]:
     """get file imports"""
-    imports: Dict[int, Tuple[str, str, int]] = {}
+    imports: dict[int, tuple[str, str, int]] = {}
 
     for idx in range(idaapi.get_import_module_qty()):
         library = idaapi.get_import_module_name(idx)
@@ -118,7 +147,7 @@ def get_file_imports() -> Dict[int, Tuple[str, str, int]]:
     return imports
 
 
-def get_file_externs() -> Dict[int, Tuple[str, str, int]]:
+def get_file_externs() -> dict[int, tuple[str, str, int]]:
     externs = {}
 
     for seg in get_segments(skip_header_segments=True):
@@ -219,7 +248,7 @@ def find_string_at(ea: int, min_: int = 4) -> str:
     return ""
 
 
-def get_op_phrase_info(op: idaapi.op_t) -> Dict:
+def get_op_phrase_info(op: idaapi.op_t) -> dict:
     """parse phrase features from operand
 
     Pretty much dup of sark's implementation:
@@ -294,7 +323,7 @@ def is_frame_register(reg: int) -> bool:
     return reg in (idautils.procregs.sp.reg, idautils.procregs.bp.reg)
 
 
-def get_insn_ops(insn: idaapi.insn_t, target_ops: Optional[Tuple[Any]] = None) -> idaapi.op_t:
+def get_insn_ops(insn: idaapi.insn_t, target_ops: Optional[tuple[Any]] = None) -> idaapi.op_t:
     """yield op_t for instruction, filter on type if specified"""
     for op in insn.ops:
         if op.type == idaapi.o_void:

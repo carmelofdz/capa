@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2022 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -10,11 +10,13 @@ from typing import Optional
 
 
 class DnType:
-    def __init__(self, token: int, class_: str, namespace: str = "", member: str = "", access: Optional[str] = None):
+    def __init__(
+        self, token: int, class_: tuple[str, ...], namespace: str = "", member: str = "", access: Optional[str] = None
+    ):
         self.token: int = token
         self.access: Optional[str] = access
         self.namespace: str = namespace
-        self.class_: str = class_
+        self.class_: tuple[str, ...] = class_
 
         if member == ".ctor":
             member = "ctor"
@@ -42,9 +44,13 @@ class DnType:
         return str(self)
 
     @staticmethod
-    def format_name(class_: str, namespace: str = "", member: str = ""):
+    def format_name(class_: tuple[str, ...], namespace: str = "", member: str = ""):
+        if len(class_) > 1:
+            class_str = "/".join(class_)  # Concat items in tuple, separated by a "/"
+        else:
+            class_str = "".join(class_)  # Convert tuple to str
         # like File::OpenRead
-        name: str = f"{class_}::{member}" if member else class_
+        name: str = f"{class_str}::{member}" if member else class_str
         if namespace:
             # like System.IO.File::OpenRead
             name = f"{namespace}.{name}"

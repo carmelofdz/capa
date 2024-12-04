@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2022 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -43,11 +43,10 @@ import json
 import logging
 import argparse
 from sys import argv
-from typing import Dict, List
 from pathlib import Path
 
 import requests
-from stix2 import Filter, MemoryStore, AttackPattern  # type: ignore
+from stix2 import Filter, MemoryStore, AttackPattern
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -77,7 +76,7 @@ class MitreExtractor:
         self._memory_store = MemoryStore(stix_data=stix_json["objects"])
 
     @staticmethod
-    def _remove_deprecated_objects(stix_objects) -> List[AttackPattern]:
+    def _remove_deprecated_objects(stix_objects) -> list[AttackPattern]:
         """Remove any revoked or deprecated objects from queries made to the data source."""
         return list(
             filter(
@@ -86,7 +85,7 @@ class MitreExtractor:
             )
         )
 
-    def _get_tactics(self) -> List[Dict]:
+    def _get_tactics(self) -> list[dict]:
         """Get tactics IDs from Mitre matrix."""
         # Only one matrix for enterprise att&ck framework
         matrix = self._remove_deprecated_objects(
@@ -98,7 +97,7 @@ class MitreExtractor:
         )[0]
         return list(map(self._memory_store.get, matrix["tactic_refs"]))
 
-    def _get_techniques_from_tactic(self, tactic: str) -> List[AttackPattern]:
+    def _get_techniques_from_tactic(self, tactic: str) -> list[AttackPattern]:
         """Get techniques and sub techniques from a Mitre tactic (kill_chain_phases->phase_name)"""
         techniques = self._remove_deprecated_objects(
             self._memory_store.query(
@@ -124,12 +123,12 @@ class MitreExtractor:
         )[0]
         return parent_technique
 
-    def run(self) -> Dict[str, Dict[str, str]]:
+    def run(self) -> dict[str, dict[str, str]]:
         """Iterate over every technique over every tactic. If the technique is a sub technique, then
         we also search for the parent technique name.
         """
         logging.info("Starting extraction...")
-        data: Dict[str, Dict[str, str]] = {}
+        data: dict[str, dict[str, str]] = {}
         for tactic in self._get_tactics():
             data[tactic["name"]] = {}
             for technique in sorted(
@@ -159,7 +158,7 @@ class MbcExtractor(MitreExtractor):
     url = "https://raw.githubusercontent.com/MBCProject/mbc-stix2/master/mbc/mbc.json"
     kill_chain_name = "mitre-mbc"
 
-    def _get_tactics(self) -> List[Dict]:
+    def _get_tactics(self) -> list[dict]:
         """Override _get_tactics to edit the tactic name for Micro-objective"""
         tactics = super()._get_tactics()
         # We don't want the Micro-objective string inside objective names
@@ -178,11 +177,8 @@ def main(args: argparse.Namespace) -> None:
         data["mbc"] = MbcExtractor().run()
 
     logging.info("Writing results to %s", args.output)
-    try:
-        with Path(args.output).open("w", encoding="utf-8") as jf:
-            json.dump(data, jf, indent=2)
-    except BaseException as e:
-        logging.error("Exception encountered when writing results: %s", e)
+    with Path(args.output).open("w", encoding="utf-8") as jf:
+        json.dump(data, jf, indent=2)
 
 
 if __name__ == "__main__":

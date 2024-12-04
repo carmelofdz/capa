@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2021 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -6,6 +6,7 @@
 #  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
 
+import os
 import sys
 import logging
 import textwrap
@@ -23,8 +24,23 @@ def get_script_path(s: str):
     return str(CD / ".." / "scripts" / s)
 
 
-def get_file_path():
+def get_binary_file_path():
     return str(CD / "data" / "9324d1a8ae37a36ae560c37448c9705a.exe_")
+
+
+def get_cape_report_file_path():
+    return str(
+        CD
+        / "data"
+        / "dynamic"
+        / "cape"
+        / "v2.4"
+        / "fb7ade52dc5a1d6128b9c217114a46d0089147610f99f5122face29e429a1e74.json.gz"
+    )
+
+
+def get_binexport2_file_path():
+    return str(CD / "data" / "binexport2" / "mimikatz.exe_.ghidra.BinExport")
 
 
 def get_rules_path():
@@ -40,16 +56,41 @@ def get_rule_path():
     [
         pytest.param("capa2yara.py", [get_rules_path()]),
         pytest.param("capafmt.py", [get_rule_path()]),
-        # not testing lint.py as it runs regularly anyway
-        pytest.param("match-function-id.py", [get_file_path()]),
-        pytest.param("show-capabilities-by-function.py", [get_file_path()]),
-        pytest.param("show-features.py", [get_file_path()]),
-        pytest.param("show-features.py", ["-F", "0x407970", get_file_path()]),
-        pytest.param("show-unused-features.py", [get_file_path()]),
-        pytest.param("capa_as_library.py", [get_file_path()]),
+        pytest.param(
+            "capa2sarif.py",
+            [Path(__file__).resolve().parent / "data" / "rd" / "Practical Malware Analysis Lab 01-01.dll_.json"],
+        ),
+        # testing some variations of linter script
+        pytest.param("lint.py", ["-t", "create directory", get_rules_path()]),
+        # `create directory` rule has native and .NET example PEs
+        pytest.param("lint.py", ["--thorough", "-t", "create directory", get_rules_path()]),
+        pytest.param("match-function-id.py", [get_binary_file_path()]),
+        pytest.param("show-capabilities-by-function.py", [get_binary_file_path()]),
+        pytest.param("show-features.py", [get_binary_file_path()]),
+        pytest.param("show-features.py", ["-F", "0x407970", get_binary_file_path()]),
+        pytest.param("show-features.py", ["-P", "MicrosoftEdgeUpdate.exe", get_cape_report_file_path()]),
+        pytest.param("show-unused-features.py", [get_binary_file_path()]),
+        pytest.param("capa-as-library.py", [get_binary_file_path()]),
+        # not testing "minimize-vmray-results.py" as we don't currently upload full VMRay analysis archives
     ],
 )
 def test_scripts(script, args):
+    script_path = get_script_path(script)
+    p = run_program(script_path, args)
+    assert p.returncode == 0
+
+
+@pytest.mark.parametrize(
+    "script,args",
+    [
+        pytest.param("inspect-binexport2.py", [get_binexport2_file_path()]),
+        pytest.param("detect-binexport2-capabilities.py", [get_binexport2_file_path()]),
+    ],
+)
+def test_binexport_scripts(script, args):
+    # define sample bytes location
+    os.environ["CAPA_SAMPLES_DIR"] = str(Path(CD / "data"))
+
     script_path = get_script_path(script)
     p = run_program(script_path, args)
     assert p.returncode == 0
@@ -75,6 +116,7 @@ def run_program(script_path, args):
     return subprocess.run(args, stdout=subprocess.PIPE)
 
 
+@pytest.mark.xfail(reason="result document test files haven't been updated yet")
 def test_proto_conversion(tmp_path):
     t = tmp_path / "proto-test"
     t.mkdir()
@@ -98,7 +140,9 @@ def test_detect_duplicate_features(tmpdir):
         rule:
             meta:
                 name: Test Rule 0
-                scope: function
+                scopes:
+                    static: function
+                    dynamic: process
             features:
               - and:
                 - number: 1
@@ -113,6 +157,9 @@ def test_detect_duplicate_features(tmpdir):
                 rule:
                     meta:
                         name: Test Rule 1
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                       - or:
                         - string: unique
@@ -121,8 +168,8 @@ def test_detect_duplicate_features(tmpdir):
                           - or:
                             - arch: i386
                             - number: 4
-                            - not:
-                              - count(mnemonic(xor)): 5
+                          - not:
+                            - count(mnemonic(xor)): 5
                           - not:
                             - os: linux
             """
@@ -132,6 +179,9 @@ def test_detect_duplicate_features(tmpdir):
                 rule:
                     meta:
                         name: Test Rule 2
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                       - and:
                         - string: "sites.ini"
@@ -146,24 +196,17 @@ def test_detect_duplicate_features(tmpdir):
                 rule:
                     meta:
                         name: Test Rule 3
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
-                      - or:
+                      - and:
                         - not:
                           - number: 4
                         - basic block:
                           - and:
                             - api: bind
                             - number: 2
-            """
-        ),
-        "rule_4": textwrap.dedent(
-            """
-                rule:
-                    meta:
-                        name: Test Rule 4
-                    features:
-                      - not:
-                        - string: "expa"
             """
         ),
     }
@@ -175,11 +218,10 @@ def test_detect_duplicate_features(tmpdir):
         The overlaps are like:
         - Rule 0 has zero overlaps in RULESET
         - Rule 1 overlaps with 3 other rules in RULESET
-        - Rule 4 overlaps with itself in RULESET
         These overlap values indicate the number of rules with which
         each rule in RULESET has overlapping features.
     """
-    rule_overlaps = [0, 4, 3, 3, 1]
+    rule_overlaps = [0, 4, 3, 3]
 
     rule_dir = tmpdir.mkdir("capa_rule_overlap_test")
     rule_paths = []

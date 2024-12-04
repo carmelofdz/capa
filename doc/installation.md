@@ -91,6 +91,12 @@ For more details about creating and using virtual environments, check out the [v
 
 ##### Install development dependencies
 
+When developing capa, please use the pinned dependencies found in `requirements.txt`.
+This ensures that everyone has the exact same, reproducible environment.
+Please install these dependencies before install capa (from source or from PyPI):
+
+`$ pip install -r requirements.txt`
+
 We use the following tools to ensure consistent code style and formatting:
   - [black](https://github.com/psf/black) code formatter
   - [isort](https://pypi.org/project/isort/) code formatter
@@ -101,31 +107,33 @@ We use the following tools to ensure consistent code style and formatting:
 
 To install these development dependencies, run:
 
-`$ pip install -e /local/path/to/src[dev]`
+- `$ pip install -e /local/path/to/src[dev]` or
+- `$ pip install -e /local/path/to/src[dev,scripts]` to also install all script dependencies
 
 We use [pre-commit](https://pre-commit.com/) so that its trivial to run the same linters & configuration locally as in CI.
 
-Run all linters liks:
+Run all linters like:
 
-    ❯ pre-commit run --all-files
+    ❯ pre-commit run --hook-stage=manual --all-files
     isort....................................................................Passed
     black....................................................................Passed
     ruff.....................................................................Passed
     flake8...................................................................Passed
     mypy.....................................................................Passed
+    pytest (fast)............................................................Passed
 
 Or run a single linter like:
 
-    ❯ pre-commit run --all-files isort
+    ❯ pre-commit run --all-files --hook-stage=manual isort
     isort....................................................................Passed
 
 
 Importantly, you can configure pre-commit to run automatically before every commit by running:
 
-    ❯ pre-commit install --hook-type pre-commit
+    ❯ pre-commit install --hook-type=pre-commit
     pre-commit installed at .git/hooks/pre-commit
 
-    ❯ pre-commit install --hook-type pre-push
+    ❯ pre-commit install --hook-type=pre-push
     pre-commit installed at .git/hooks/pre-push
 
 This way you can ensure that you don't commit code style or formatting offenses.

@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -6,7 +6,7 @@
 #  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
 
-from typing import Set, Dict, List, Tuple, Optional
+from typing import Optional
 from collections import deque
 
 import idc
@@ -354,7 +354,7 @@ class CapaExplorerDataModel(QtCore.QAbstractItemModel):
         parent: CapaExplorerDataItem,
         match: rd.Match,
         statement: rd.Statement,
-        locations: List[Address],
+        locations: list[Address],
         doc: rd.ResultDocument,
     ):
         """render capa statement read from doc
@@ -447,9 +447,9 @@ class CapaExplorerDataModel(QtCore.QAbstractItemModel):
 
     def render_capa_doc_by_function(self, doc: rd.ResultDocument):
         """render rule matches by function meaning each rule match is nested under function where it was found"""
-        matches_by_function: Dict[AbsoluteVirtualAddress, Tuple[CapaExplorerFunctionItem, Set[str]]] = {}
+        matches_by_function: dict[AbsoluteVirtualAddress, tuple[CapaExplorerFunctionItem, set[str]]] = {}
         for rule in rutils.capability_rules(doc):
-            match_eas: List[int] = []
+            match_eas: list[int] = []
 
             # initial pass of rule matches
             for addr_, _ in rule.matches:
@@ -500,16 +500,16 @@ class CapaExplorerDataModel(QtCore.QAbstractItemModel):
                 location = location_.to_capa()
 
                 parent2: CapaExplorerDataItem
-                if rule.meta.scope == capa.rules.FILE_SCOPE:
+                if capa.rules.Scope.FILE in rule.meta.scopes:
                     parent2 = parent
-                elif rule.meta.scope == capa.rules.FUNCTION_SCOPE:
+                elif capa.rules.Scope.FUNCTION in rule.meta.scopes:
                     parent2 = CapaExplorerFunctionItem(parent, location)
-                elif rule.meta.scope == capa.rules.BASIC_BLOCK_SCOPE:
+                elif capa.rules.Scope.BASIC_BLOCK in rule.meta.scopes:
                     parent2 = CapaExplorerBlockItem(parent, location)
-                elif rule.meta.scope == capa.rules.INSTRUCTION_SCOPE:
+                elif capa.rules.Scope.INSTRUCTION in rule.meta.scopes:
                     parent2 = CapaExplorerInstructionItem(parent, location)
                 else:
-                    raise RuntimeError("unexpected rule scope: " + str(rule.meta.scope))
+                    raise RuntimeError("unexpected rule scope: " + str(rule.meta.scopes.static))
 
                 self.render_capa_doc_match(parent2, match, doc)
 
@@ -560,7 +560,7 @@ class CapaExplorerDataModel(QtCore.QAbstractItemModel):
         parent: CapaExplorerDataItem,
         match: rd.Match,
         feature: frzf.Feature,
-        locations: List[Address],
+        locations: list[Address],
         doc: rd.ResultDocument,
     ):
         """process capa doc feature node

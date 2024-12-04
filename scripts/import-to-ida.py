@@ -20,7 +20,7 @@ and then select the existing capa report from the file system.
 This script will verify that the report matches the workspace.
 Check the output window for any errors, and/or the summary of changes.
 
-Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
 Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
 You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -28,6 +28,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and limitations under the License.
 """
+
 import logging
 import binascii
 from pathlib import Path
@@ -90,7 +91,7 @@ def main():
             continue
         if rule.meta.is_subscope_rule:
             continue
-        if rule.meta.scope != capa.rules.Scope.FUNCTION:
+        if rule.meta.scopes.static == capa.rules.Scope.FUNCTION:
             continue
 
         ns = rule.meta.namespace

@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -16,7 +16,7 @@ import capa.features.common
 import capa.features.address
 from capa.engine import Or
 from capa.features.file import FunctionName
-from capa.features.insn import Number, Offset, Property
+from capa.features.insn import API, Number, Offset, Property
 from capa.features.common import (
     OS,
     OS_LINUX,
@@ -39,7 +39,9 @@ ADDR4 = capa.features.address.AbsoluteVirtualAddress(0x401004)
 
 
 def test_rule_ctor():
-    r = capa.rules.Rule("test rule", capa.rules.FUNCTION_SCOPE, Or([Number(1)]), {})
+    r = capa.rules.Rule(
+        "test rule", capa.rules.Scopes(capa.rules.Scope.FUNCTION, capa.rules.Scope.FILE), Or([Number(1)]), {}
+    )
     assert bool(r.evaluate({Number(0): {ADDR1}})) is False
     assert bool(r.evaluate({Number(1): {ADDR2}})) is True
 
@@ -52,7 +54,9 @@ def test_rule_yaml():
                 name: test rule
                 authors:
                     - user@domain.com
-                scope: function
+                scopes:
+                    static: function
+                    dynamic: process
                 examples:
                     - foo1234
                     - bar5678
@@ -75,6 +79,9 @@ def test_rule_yaml_complex():
         rule:
             meta:
                 name: test rule
+                scopes:
+                    static: function
+                    dynamic: process
             features:
                 - or:
                     - and:
@@ -99,6 +106,9 @@ def test_rule_descriptions():
         rule:
           meta:
             name: test rule
+            scopes:
+                static: function
+                dynamic: process
           features:
             - and:
               - description: and description
@@ -143,6 +153,9 @@ def test_invalid_rule_statement_descriptions():
                 rule:
                   meta:
                     name: test rule
+                    scopes:
+                        static: function
+                        dynamic: process
                   features:
                     - or:
                       - number: 1 = This is the number 1
@@ -159,6 +172,9 @@ def test_rule_yaml_not():
         rule:
             meta:
                 name: test rule
+                scopes:
+                        static: function
+                        dynamic: process
             features:
                 - and:
                     - number: 1
@@ -177,6 +193,9 @@ def test_rule_yaml_count():
         rule:
             meta:
                 name: test rule
+                scopes:
+                        static: function
+                        dynamic: process
             features:
                 - count(number(100)): 1
         """
@@ -193,6 +212,9 @@ def test_rule_yaml_count_range():
         rule:
             meta:
                 name: test rule
+                scopes:
+                        static: function
+                        dynamic: process
             features:
                 - count(number(100)): (1, 2)
         """
@@ -210,6 +232,9 @@ def test_rule_yaml_count_string():
         rule:
             meta:
                 name: test rule
+                scopes:
+                        static: function
+                        dynamic: process
             features:
                 - count(string(foo)): 2
         """
@@ -229,6 +254,9 @@ def test_invalid_rule_feature():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - foo: true
                 """
@@ -242,7 +270,9 @@ def test_invalid_rule_feature():
                 rule:
                     meta:
                         name: test rule
-                        scope: file
+                        scopes:
+                            static: file
+                            dynamic: process
                     features:
                         - characteristic: nzxor
                 """
@@ -256,7 +286,9 @@ def test_invalid_rule_feature():
                 rule:
                     meta:
                         name: test rule
-                        scope: function
+                        scopes:
+                            static: function
+                            dynamic: thread
                     features:
                         - characteristic: embedded pe
                 """
@@ -270,9 +302,207 @@ def test_invalid_rule_feature():
                 rule:
                     meta:
                         name: test rule
-                        scope: basic block
+                        scopes:
+                            static: basic block
+                            dynamic: thread
                     features:
                         - characteristic: embedded pe
+                """
+            )
+        )
+
+
+def test_multi_scope_rules_features():
+    _ = capa.rules.Rule.from_yaml(
+        textwrap.dedent(
+            """
+            rule:
+                meta:
+                    name: test rule
+                    scopes:
+                        static: function
+                        dynamic: process
+                features:
+                    - or:
+                        - api: write
+                        - and:
+                            - os: linux
+                            - mnemonic: syscall
+                            - number: 1 = write
+            """
+        )
+    )
+
+    _ = capa.rules.Rule.from_yaml(
+        textwrap.dedent(
+            """
+            rule:
+                meta:
+                    name: test rule
+                    scopes:
+                        static: function
+                        dynamic: process
+                features:
+                    - or:
+                        - api: read
+                        - and:
+                            - os: linux
+                            - mnemonic: syscall
+                            - number: 0 = read
+            """
+        )
+    )
+
+    _ = capa.rules.Rule.from_yaml(
+        textwrap.dedent(
+            """
+            rule:
+              meta:
+                name: test rule
+                scopes:
+                  static: instruction
+                  dynamic: call
+              features:
+                - and:
+                  - or:
+                    - api: socket
+                    - and:
+                      - os: linux
+                      - mnemonic: syscall
+                      - number: 41 = socket()
+                  - number: 6 = IPPROTO_TCP
+                  - number: 1 = SOCK_STREAM
+                  - number: 2 = AF_INET
+            """
+        )
+    )
+
+
+def test_rules_flavor_filtering():
+    rules = [
+        capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: static rule
+                        scopes:
+                            static: function
+                            dynamic: unsupported
+                    features:
+                        - api: CreateFileA
+                """
+            )
+        ),
+        capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: dynamic rule
+                        scopes:
+                            static: unsupported
+                            dynamic: thread
+                    features:
+                        - api: CreateFileA
+                """
+            )
+        ),
+    ]
+
+    static_rules = capa.rules.RuleSet([r for r in rules if r.scopes.static is not None])
+    dynamic_rules = capa.rules.RuleSet([r for r in rules if r.scopes.dynamic is not None])
+
+    # only static rule
+    assert len(static_rules) == 1
+    # only dynamic rule
+    assert len(dynamic_rules) == 1
+
+
+def test_meta_scope_keywords():
+    static_scopes = sorted([e.value for e in capa.rules.STATIC_SCOPES])
+    dynamic_scopes = sorted([e.value for e in capa.rules.DYNAMIC_SCOPES])
+
+    for static_scope in static_scopes:
+        for dynamic_scope in dynamic_scopes:
+            _ = capa.rules.Rule.from_yaml(
+                textwrap.dedent(
+                    f"""
+                    rule:
+                        meta:
+                            name: test rule
+                            scopes:
+                                static: {static_scope}
+                                dynamic: {dynamic_scope}
+                        features:
+                            - or:
+                                - format: pe
+                    """
+                )
+            )
+
+    # its also ok to specify "unsupported"
+    for static_scope in static_scopes:
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                f"""
+                rule:
+                    meta:
+                        name: test rule
+                        scopes:
+                            static: {static_scope}
+                            dynamic: unsupported
+                    features:
+                        - or:
+                            - format: pe
+                """
+            )
+        )
+    for dynamic_scope in dynamic_scopes:
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                f"""
+                rule:
+                    meta:
+                        name: test rule
+                        scopes:
+                            static: unsupported
+                            dynamic: {dynamic_scope}
+                    features:
+                        - or:
+                            - format: pe
+                """
+            )
+        )
+
+    # but at least one scope must be specified
+    with pytest.raises(capa.rules.InvalidRule):
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule
+                        scopes: {}
+                    features:
+                        - or:
+                            - format: pe
+                """
+            )
+        )
+    with pytest.raises(capa.rules.InvalidRule):
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule
+                        scopes:
+                            static: unsupported
+                            dynamic: unsupported
+                    features:
+                        - or:
+                            - format: pe
                 """
             )
         )
@@ -287,6 +517,9 @@ def test_lib_rules():
                     rule:
                         meta:
                             name: a lib rule
+                            scopes:
+                                static: function
+                                dynamic: process
                             lib: true
                         features:
                             - api: CreateFileA
@@ -299,6 +532,9 @@ def test_lib_rules():
                     rule:
                         meta:
                             name: a standard rule
+                            scopes:
+                                static: function
+                                dynamic: process
                             lib: false
                         features:
                             - api: CreateFileW
@@ -319,8 +555,10 @@ def test_subscope_rules():
                     """
                     rule:
                         meta:
-                            name: test rule
-                            scope: file
+                            name: test function subscope
+                            scopes:
+                                static: file
+                                dynamic: process
                         features:
                             - and:
                                 - characteristic: embedded pe
@@ -330,16 +568,83 @@ def test_subscope_rules():
                                         - characteristic: loop
                     """
                 )
-            )
+            ),
+            capa.rules.Rule.from_yaml(
+                textwrap.dedent(
+                    """
+                    rule:
+                        meta:
+                            name: test process subscope
+                            scopes:
+                                static: file
+                                dynamic: file
+                        features:
+                            - and:
+                                - import: WININET.dll.HttpOpenRequestW
+                                - process:
+                                    - and:
+                                        - substring: "http://"
+                    """
+                )
+            ),
+            capa.rules.Rule.from_yaml(
+                textwrap.dedent(
+                    """
+                    rule:
+                        meta:
+                            name: test thread subscope
+                            scopes:
+                                static: file
+                                dynamic: process
+                        features:
+                            - and:
+                                 - string: "explorer.exe"
+                                 - thread:
+                                    - api: HttpOpenRequestW
+                    """
+                )
+            ),
+            capa.rules.Rule.from_yaml(
+                textwrap.dedent(
+                    """
+                    rule:
+                      meta:
+                        name: test call subscope
+                        scopes:
+                          static: basic block
+                          dynamic: thread
+                      features:
+                        - and:
+                          - string: "explorer.exe"
+                          - call:
+                            - api: HttpOpenRequestW
+                    """
+                )
+            ),
         ]
     )
-    # the file rule scope will have one rules:
-    #  - `test rule`
-    assert len(rules.file_rules) == 1
+    # the file rule scope will have four rules:
+    # - `test function subscope`, `test process subscope` and
+    # `test thread subscope` for the static scope
+    # - and `test process subscope` for both scopes
+    assert len(rules.file_rules) == 3
 
-    # the function rule scope have one rule:
-    #  - the rule on which `test rule` depends
+    # the function rule scope have two rule:
+    # - the rule on which `test function subscope` depends
     assert len(rules.function_rules) == 1
+
+    # the process rule scope has three rules:
+    # - the rule on which `test process subscope` depends,
+    assert len(rules.process_rules) == 3
+
+    # the thread rule scope has two rule:
+    # - the rule on which `test thread subscope` depends
+    # - the `test call subscope` rule
+    assert len(rules.thread_rules) == 2
+
+    # the call rule scope has one rule:
+    # - the rule on which `test call subcsope` depends
+    assert len(rules.call_rules) == 1
 
 
 def test_duplicate_rules():
@@ -352,6 +657,9 @@ def test_duplicate_rules():
                         rule:
                             meta:
                                 name: rule-name
+                                scopes:
+                                    static: function
+                                    dynamic: process
                             features:
                                 - api: CreateFileA
                         """
@@ -363,6 +671,9 @@ def test_duplicate_rules():
                         rule:
                             meta:
                                 name: rule-name
+                                scopes:
+                                    static: function
+                                    dynamic: process
                             features:
                                 - api: CreateFileW
                         """
@@ -382,6 +693,9 @@ def test_missing_dependency():
                         rule:
                             meta:
                                 name: dependent rule
+                                scopes:
+                                    static: function
+                                    dynamic: process
                             features:
                                 - match: missing rule
                         """
@@ -399,6 +713,9 @@ def test_invalid_rules():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - characteristic: number(1)
                 """
@@ -412,6 +729,9 @@ def test_invalid_rules():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - characteristic: count(number(100))
                 """
@@ -426,6 +746,9 @@ def test_invalid_rules():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                         att&ck: Tactic::Technique::Subtechnique [Identifier]
                     features:
                         - number: 1
@@ -439,7 +762,70 @@ def test_invalid_rules():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                         mbc: Objective::Behavior::Method [Identifier]
+                    features:
+                        - number: 1
+                """
+            )
+        )
+    with pytest.raises(capa.rules.InvalidRule):
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule
+                        scopes:
+                            static: basic block
+                            behavior: process
+                    features:
+                        - number: 1
+                """
+            )
+        )
+    with pytest.raises(capa.rules.InvalidRule):
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule
+                        scopes:
+                            legacy: basic block
+                            dynamic: process
+                    features:
+                        - number: 1
+                """
+            )
+        )
+    with pytest.raises(capa.rules.InvalidRule):
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule
+                        scopes:
+                            static: process
+                            dynamic: process
+                    features:
+                        - number: 1
+                """
+            )
+        )
+    with pytest.raises(capa.rules.InvalidRule):
+        _ = capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule
+                        scopes:
+                            static: basic block
+                            dynamic: function
                     features:
                         - number: 1
                 """
@@ -453,6 +839,9 @@ def test_number_symbol():
         rule:
             meta:
                 name: test rule
+                scopes:
+                    static: function
+                    dynamic: process
             features:
                 - and:
                     - number: 1
@@ -480,6 +869,9 @@ def test_count_number_symbol():
         rule:
             meta:
                 name: test rule
+                scopes:
+                    static: function
+                    dynamic: process
             features:
                 - or:
                     - count(number(2 = symbol name)): 1
@@ -495,6 +887,30 @@ def test_count_number_symbol():
     assert bool(r.evaluate({Number(0x100, description="symbol name"): {ADDR1, ADDR2, ADDR3}})) is True
 
 
+def test_count_api():
+    rule = textwrap.dedent(
+        """
+        rule:
+            meta:
+                name: test rule
+                scopes:
+                    static: function
+                    dynamic: thread
+            features:
+                - or:
+                    - count(api(kernel32.CreateFileA)): 1
+                    - count(api(System.Convert::FromBase64String)): 1
+        """
+    )
+    r = capa.rules.Rule.from_yaml(rule)
+    # apis including their DLL names are not extracted anymore
+    assert bool(r.evaluate({API("kernel32.CreateFileA"): set()})) is False
+    assert bool(r.evaluate({API("kernel32.CreateFile"): set()})) is False
+    assert bool(r.evaluate({API("CreateFile"): {ADDR1}})) is False
+    assert bool(r.evaluate({API("CreateFileA"): {ADDR1}})) is True
+    assert bool(r.evaluate({API("System.Convert::FromBase64String"): {ADDR1}})) is True
+
+
 def test_invalid_number():
     with pytest.raises(capa.rules.InvalidRule):
         _ = capa.rules.Rule.from_yaml(
@@ -503,6 +919,9 @@ def test_invalid_number():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - number: "this is a string"
                 """
@@ -516,6 +935,9 @@ def test_invalid_number():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - number: 2=
                 """
@@ -529,6 +951,9 @@ def test_invalid_number():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - number: symbol name = 2
                 """
@@ -542,6 +967,9 @@ def test_offset_symbol():
         rule:
             meta:
                 name: test rule
+                scopes:
+                    static: function
+                    dynamic: process
             features:
                 - and:
                     - offset: 1
@@ -566,6 +994,9 @@ def test_count_offset_symbol():
         rule:
             meta:
                 name: test rule
+                scopes:
+                    static: function
+                    dynamic: process
             features:
                 - or:
                     - count(offset(2 = symbol name)): 1
@@ -589,6 +1020,9 @@ def test_invalid_offset():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - offset: "this is a string"
                 """
@@ -602,6 +1036,9 @@ def test_invalid_offset():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - offset: 2=
                 """
@@ -615,6 +1052,9 @@ def test_invalid_offset():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - offset: symbol name = 2
                 """
@@ -630,6 +1070,9 @@ def test_invalid_string_values_int():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - string: 123
                 """
@@ -643,6 +1086,9 @@ def test_invalid_string_values_int():
                 rule:
                     meta:
                         name: test rule
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - string: 0x123
                 """
@@ -656,6 +1102,9 @@ def test_explicit_string_values_int():
         rule:
             meta:
                 name: test rule
+                scopes:
+                    static: function
+                    dynamic: process
             features:
                 - or:
                     - string: "123"
@@ -674,6 +1123,9 @@ def test_string_values_special_characters():
         rule:
             meta:
                 name: test rule
+                scopes:
+                    static: function
+                    dynamic: process
             features:
                 - or:
                     - string: "hello\\r\\nworld"
@@ -693,6 +1145,9 @@ def test_substring_feature():
         rule:
             meta:
                 name: test rule
+                scopes:
+                    static: function
+                    dynamic: process
             features:
                 - or:
                     - substring: abc
@@ -713,6 +1168,9 @@ def test_substring_description():
         rule:
             meta:
                 name: test rule
+                scopes:
+                    static: function
+                    dynamic: process
             features:
                 - or:
                     - substring: abc
@@ -733,6 +1191,9 @@ def test_filter_rules():
                     rule:
                         meta:
                             name: rule 1
+                            scopes:
+                                static: function
+                                dynamic: process
                             authors:
                               - joe
                         features:
@@ -746,6 +1207,9 @@ def test_filter_rules():
                     rule:
                         meta:
                             name: rule 2
+                            scopes:
+                                static: function
+                                dynamic: process
                         features:
                             - string: joe
                     """
@@ -767,6 +1231,9 @@ def test_filter_rules_dependencies():
                     rule:
                         meta:
                             name: rule 1
+                            scopes:
+                                static: function
+                                dynamic: process
                         features:
                             - match: rule 2
                     """
@@ -778,6 +1245,9 @@ def test_filter_rules_dependencies():
                     rule:
                         meta:
                             name: rule 2
+                            scopes:
+                                static: function
+                                dynamic: process
                         features:
                             - match: rule 3
                     """
@@ -789,6 +1259,9 @@ def test_filter_rules_dependencies():
                     rule:
                         meta:
                             name: rule 3
+                            scopes:
+                                static: function
+                                dynamic: process
                         features:
                             - api: CreateFile
                     """
@@ -813,6 +1286,9 @@ def test_filter_rules_missing_dependency():
                         rule:
                             meta:
                                 name: rule 1
+                                scopes:
+                                    static: function
+                                    dynamic: process
                                 authors:
                                   - joe
                             features:
@@ -832,6 +1308,9 @@ def test_rules_namespace_dependencies():
                 rule:
                     meta:
                         name: rule 1
+                        scopes:
+                            static: function
+                            dynamic: process
                         namespace: ns1/nsA
                     features:
                         - api: CreateFile
@@ -844,6 +1323,9 @@ def test_rules_namespace_dependencies():
                 rule:
                     meta:
                         name: rule 2
+                        scopes:
+                            static: function
+                            dynamic: process
                         namespace: ns1/nsB
                     features:
                         - api: CreateFile
@@ -856,6 +1338,9 @@ def test_rules_namespace_dependencies():
                 rule:
                     meta:
                         name: rule 3
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - match: ns1/nsA
                 """
@@ -867,6 +1352,9 @@ def test_rules_namespace_dependencies():
                 rule:
                     meta:
                         name: rule 4
+                        scopes:
+                            static: function
+                            dynamic: process
                     features:
                         - match: ns1
                 """
@@ -891,7 +1379,9 @@ def test_function_name_features():
         rule:
             meta:
                 name: test rule
-                scope: file
+                scopes:
+                    static: file
+                    dynamic: process
             features:
                 - and:
                     - function-name: strcpy
@@ -913,7 +1403,9 @@ def test_os_features():
         rule:
             meta:
                 name: test rule
-                scope: file
+                scopes:
+                    static: file
+                    dynamic: process
             features:
                 - and:
                     - os: windows
@@ -931,7 +1423,9 @@ def test_format_features():
         rule:
             meta:
                 name: test rule
-                scope: file
+                scopes:
+                    static: file
+                    dynamic: process
             features:
                 - and:
                     - format: pe
@@ -949,7 +1443,9 @@ def test_arch_features():
         rule:
             meta:
                 name: test rule
-                scope: file
+                scopes:
+                    static: file
+                    dynamic: process
             features:
                 - and:
                     - arch: amd64
@@ -968,6 +1464,9 @@ def test_property_access():
             rule:
                 meta:
                     name: test rule
+                    scopes:
+                        static: function
+                        dynamic: process
                 features:
                     - property/read: System.IO.FileInfo::Length
             """
@@ -986,6 +1485,9 @@ def test_property_access_symbol():
             rule:
                 meta:
                     name: test rule
+                    scopes:
+                        static: function
+                        dynamic: process
                 features:
                     - property/read: System.IO.FileInfo::Length = some property
             """
@@ -1012,6 +1514,9 @@ def test_translate_com_features():
             rule:
                 meta:
                     name: test rule
+                    scopes:
+                      static: basic block
+                      dynamic: call
                 features:
                     - com/class: WICPngDecoder
                     # 389ea17b-5078-4cde-b6ef-25c15175c751 WICPngDecoder
@@ -1072,3 +1577,42 @@ def test_invalid_com_features():
                 """
             )
         )
+
+
+def test_circular_dependency():
+    rules = [
+        capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule 1
+                        scopes:
+                            static: function
+                            dynamic: process
+                        lib: true
+                    features:
+                    - or:
+                        - match: test rule 2
+                        - api: kernel32.VirtualAlloc
+                """
+            )
+        ),
+        capa.rules.Rule.from_yaml(
+            textwrap.dedent(
+                """
+                rule:
+                    meta:
+                        name: test rule 2
+                        scopes:
+                            static: function
+                            dynamic: process
+                        lib: true
+                    features:
+                        - match: test rule 1
+                """
+            )
+        ),
+    ]
+    with pytest.raises(capa.rules.InvalidRule):
+        list(capa.rules.get_rules_and_dependencies(rules, rules[0].name))

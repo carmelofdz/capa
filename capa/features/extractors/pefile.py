@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2021 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -19,7 +19,7 @@ import capa.features.extractors.strings
 from capa.features.file import Export, Import, Section
 from capa.features.common import OS, ARCH_I386, FORMAT_PE, ARCH_AMD64, OS_WINDOWS, Arch, Format, Characteristic
 from capa.features.address import NO_ADDRESS, FileOffsetAddress, AbsoluteVirtualAddress
-from capa.features.extractors.base_extractor import FeatureExtractor
+from capa.features.extractors.base_extractor import SampleHashes, StaticFeatureExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def extract_file_import_names(pe, **kwargs):
                     except UnicodeDecodeError:
                         continue
 
-                for name in capa.features.extractors.helpers.generate_symbols(modname, impname):
+                for name in capa.features.extractors.helpers.generate_symbols(modname, impname, include_dll=True):
                     yield Import(name), AbsoluteVirtualAddress(imp.address)
 
 
@@ -130,7 +130,13 @@ def extract_file_arch(pe, **kwargs):
     elif pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE["IMAGE_FILE_MACHINE_AMD64"]:
         yield Arch(ARCH_AMD64), NO_ADDRESS
     else:
-        logger.warning("unsupported architecture: %s", pefile.MACHINE_TYPE[pe.FILE_HEADER.Machine])
+        try:
+            logger.warning(
+                "unsupported architecture: %s",
+                pefile.MACHINE_TYPE[pe.FILE_HEADER.Machine],
+            )
+        except KeyError:
+            logger.warning("unknown architecture: %s", pe.FILE_HEADER.Machine)
 
 
 def extract_file_features(pe, buf):
@@ -142,11 +148,11 @@ def extract_file_features(pe, buf):
       buf: the raw sample bytes
 
     yields:
-      Tuple[Feature, VA]: a feature and its location.
+      tuple[Feature, VA]: a feature and its location.
     """
 
     for file_handler in FILE_HANDLERS:
-        # file_handler: type: (pe, bytes) -> Iterable[Tuple[Feature, Address]]
+        # file_handler: type: (pe, bytes) -> Iterable[tuple[Feature, Address]]
         for feature, va in file_handler(pe=pe, buf=buf):  # type: ignore
             yield feature, va
 
@@ -171,10 +177,10 @@ def extract_global_features(pe, buf):
       buf: the raw sample bytes
 
     yields:
-      Tuple[Feature, VA]: a feature and its location.
+      tuple[Feature, VA]: a feature and its location.
     """
     for handler in GLOBAL_HANDLERS:
-        # file_handler: type: (pe, bytes) -> Iterable[Tuple[Feature, Address]]
+        # file_handler: type: (pe, bytes) -> Iterable[tuple[Feature, Address]]
         for feature, va in handler(pe=pe, buf=buf):  # type: ignore
             yield feature, va
 
@@ -185,9 +191,9 @@ GLOBAL_HANDLERS = (
 )
 
 
-class PefileFeatureExtractor(FeatureExtractor):
+class PefileFeatureExtractor(StaticFeatureExtractor):
     def __init__(self, path: Path):
-        super().__init__()
+        super().__init__(hashes=SampleHashes.from_bytes(path.read_bytes()))
         self.path: Path = path
         self.pe = pefile.PE(str(path))
 

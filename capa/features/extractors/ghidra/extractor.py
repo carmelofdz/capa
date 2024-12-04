@@ -5,7 +5,7 @@
 # Unless required by applicable law or agreed to in writing, software distributed under the License
 #  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
-from typing import List, Tuple, Iterator
+from typing import Iterator
 
 import capa.features.extractors.ghidra.file
 import capa.features.extractors.ghidra.insn
@@ -14,15 +14,33 @@ import capa.features.extractors.ghidra.function
 import capa.features.extractors.ghidra.basicblock
 from capa.features.common import Feature
 from capa.features.address import Address, AbsoluteVirtualAddress
-from capa.features.extractors.base_extractor import BBHandle, InsnHandle, FunctionHandle, FeatureExtractor
+from capa.features.extractors.base_extractor import (
+    BBHandle,
+    InsnHandle,
+    SampleHashes,
+    FunctionHandle,
+    StaticFeatureExtractor,
+)
 
 
-class GhidraFeatureExtractor(FeatureExtractor):
+class GhidraFeatureExtractor(StaticFeatureExtractor):
     def __init__(self):
-        super().__init__()
         import capa.features.extractors.ghidra.helpers as ghidra_helpers
 
-        self.global_features: List[Tuple[Feature, Address]] = []
+        super().__init__(
+            SampleHashes(
+                md5=capa.ghidra.helpers.get_file_md5(),
+                # ghidra doesn't expose this hash.
+                # https://ghidra.re/ghidra_docs/api/ghidra/program/model/listing/Program.html
+                #
+                # the hashes are stored in the database, not computed on the fly,
+                # so it's probably not trivial to add SHA1.
+                sha1="",
+                sha256=capa.ghidra.helpers.get_file_sha256(),
+            )
+        )
+
+        self.global_features: list[tuple[Feature, Address]] = []
         self.global_features.extend(capa.features.extractors.ghidra.file.extract_file_format())
         self.global_features.extend(capa.features.extractors.ghidra.global_.extract_os())
         self.global_features.extend(capa.features.extractors.ghidra.global_.extract_arch())
@@ -55,7 +73,7 @@ class GhidraFeatureExtractor(FeatureExtractor):
         func = getFunctionContaining(toAddr(addr))  # type: ignore [name-defined] # noqa: F821
         return FunctionHandle(address=AbsoluteVirtualAddress(func.getEntryPoint().getOffset()), inner=func)
 
-    def extract_function_features(self, fh: FunctionHandle) -> Iterator[Tuple[Feature, Address]]:
+    def extract_function_features(self, fh: FunctionHandle) -> Iterator[tuple[Feature, Address]]:
         yield from capa.features.extractors.ghidra.function.extract_features(fh)
 
     def get_basic_blocks(self, fh: FunctionHandle) -> Iterator[BBHandle]:
@@ -63,7 +81,7 @@ class GhidraFeatureExtractor(FeatureExtractor):
 
         yield from ghidra_helpers.get_function_blocks(fh)
 
-    def extract_basic_block_features(self, fh: FunctionHandle, bbh: BBHandle) -> Iterator[Tuple[Feature, Address]]:
+    def extract_basic_block_features(self, fh: FunctionHandle, bbh: BBHandle) -> Iterator[tuple[Feature, Address]]:
         yield from capa.features.extractors.ghidra.basicblock.extract_features(fh, bbh)
 
     def get_instructions(self, fh: FunctionHandle, bbh: BBHandle) -> Iterator[InsnHandle]:

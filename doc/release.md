@@ -1,7 +1,7 @@
 # Release checklist
 
 - [ ] Ensure all [milestoned issues/PRs](https://github.com/mandiant/capa/milestones) are addressed, or reassign to a new milestone.
-- [ ] Add the `dont merge` label to all PRs that are close to be ready to merge (or merge them if they are ready) in [capa](https://github.com/mandiant/capa/pulls) and [capa-rules](https://github.com/mandiant/capa-rules/pulls).
+- [ ] Add the `don't merge` label to all PRs that are close to be ready to merge (or merge them if they are ready) in [capa](https://github.com/mandiant/capa/pulls) and [capa-rules](https://github.com/mandiant/capa-rules/pulls).
 - [ ] Ensure the [CI workflow succeeds in master](https://github.com/mandiant/capa/actions/workflows/tests.yml?query=branch%3Amaster).
 - [ ] Ensure that `python scripts/lint.py rules/ --thorough` succeeds (only `missing examples` offenses are allowed in the nursery). You can [manually trigger a thorough lint](https://github.com/mandiant/capa-rules/actions/workflows/tests.yml) in CI via the "Run workflow" option. 
 - [ ] Review changes
@@ -26,7 +26,9 @@
 
     ### Bug Fixes
 
-    ### capa explorer IDA Pro plugin
+    ### capa Explorer Web
+
+    ### capa Explorer IDA Pro plugin
 
     ### Development
 
@@ -42,5 +44,6 @@
   - [ ] [publish to PyPI](https://pypi.org/project/flare-capa)
   - [ ] [create tag in capa rules](https://github.com/mandiant/capa-rules/tags)
   - [ ] [create release in capa rules](https://github.com/mandiant/capa-rules/releases)
+- [ ] Update [homepage](https://github.com/mandiant/capa/blob/master/web/public/index.html)
 - [ ] [Spread the word](https://twitter.com)
 - [ ] Update internal service

@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2021 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -7,7 +7,8 @@
 # See the License for the specific language governing permissions and limitations under the License.
 import datetime
 import collections
-from typing import Dict, List, Tuple, Union, Literal, Optional
+from enum import Enum
+from typing import Union, Literal, Optional, TypeAlias
 from pathlib import Path
 
 from pydantic import Field, BaseModel, ConfigDict
@@ -20,7 +21,7 @@ import capa.features.address
 import capa.features.freeze.features as frzf
 from capa.rules import RuleSet
 from capa.engine import MatchResults
-from capa.helpers import assert_never
+from capa.helpers import assert_never, load_json_from_path
 
 
 class FrozenModel(BaseModel):
@@ -44,11 +45,34 @@ class BasicBlockLayout(Model):
 
 class FunctionLayout(Model):
     address: frz.Address
-    matched_basic_blocks: Tuple[BasicBlockLayout, ...]
+    matched_basic_blocks: tuple[BasicBlockLayout, ...]
 
 
-class Layout(Model):
-    functions: Tuple[FunctionLayout, ...]
+class CallLayout(Model):
+    address: frz.Address
+    name: str
+
+
+class ThreadLayout(Model):
+    address: frz.Address
+    matched_calls: tuple[CallLayout, ...]
+
+
+class ProcessLayout(Model):
+    address: frz.Address
+    name: str
+    matched_threads: tuple[ThreadLayout, ...]
+
+
+class StaticLayout(Model):
+    functions: tuple[FunctionLayout, ...]
+
+
+class DynamicLayout(Model):
+    processes: tuple[ProcessLayout, ...]
+
+
+Layout: TypeAlias = Union[StaticLayout, DynamicLayout]
 
 
 class LibraryFunction(Model):
@@ -61,29 +85,71 @@ class FunctionFeatureCount(Model):
     count: int
 
 
-class FeatureCounts(Model):
+class ProcessFeatureCount(Model):
+    address: frz.Address
+    count: int
+
+
+class StaticFeatureCounts(Model):
     file: int
-    functions: Tuple[FunctionFeatureCount, ...]
+    functions: tuple[FunctionFeatureCount, ...]
 
 
-class Analysis(Model):
+class DynamicFeatureCounts(Model):
+    file: int
+    processes: tuple[ProcessFeatureCount, ...]
+
+
+FeatureCounts: TypeAlias = Union[StaticFeatureCounts, DynamicFeatureCounts]
+
+
+class StaticAnalysis(Model):
     format: str
     arch: str
     os: str
     extractor: str
-    rules: Tuple[str, ...]
+    rules: tuple[str, ...]
     base_address: frz.Address
-    layout: Layout
-    feature_counts: FeatureCounts
-    library_functions: Tuple[LibraryFunction, ...]
+    layout: StaticLayout
+    feature_counts: StaticFeatureCounts
+    library_functions: tuple[LibraryFunction, ...]
+
+
+class DynamicAnalysis(Model):
+    format: str
+    arch: str
+    os: str
+    extractor: str
+    rules: tuple[str, ...]
+    layout: DynamicLayout
+    feature_counts: DynamicFeatureCounts
+
+
+Analysis: TypeAlias = Union[StaticAnalysis, DynamicAnalysis]
+
+
+class Flavor(str, Enum):
+    STATIC = "static"
+    DYNAMIC = "dynamic"
 
 
 class Metadata(Model):
     timestamp: datetime.datetime
     version: str
-    argv: Optional[Tuple[str, ...]]
+    argv: Optional[tuple[str, ...]]
     sample: Sample
+    flavor: Flavor
     analysis: Analysis
+
+
+class StaticMetadata(Metadata):
+    flavor: Flavor = Flavor.STATIC
+    analysis: StaticAnalysis
+
+
+class DynamicMetadata(Metadata):
+    flavor: Flavor = Flavor.DYNAMIC
+    analysis: DynamicAnalysis
 
 
 class CompoundStatementType:
@@ -93,8 +159,7 @@ class CompoundStatementType:
     OPTIONAL = "optional"
 
 
-class StatementModel(FrozenModel):
-    ...
+class StatementModel(FrozenModel): ...
 
 
 class CompoundStatement(StatementModel):
@@ -155,7 +220,7 @@ def statement_from_capa(node: capa.engine.Statement) -> Statement:
             description=node.description,
             min=node.min,
             max=node.max,
-            child=frz.feature_from_capa(node.child),
+            child=frzf.feature_from_capa(node.child),
         )
 
     elif isinstance(node, capa.engine.Subscope):
@@ -181,14 +246,14 @@ def node_from_capa(node: Union[capa.engine.Statement, capa.engine.Feature]) -> N
         return StatementNode(statement=statement_from_capa(node))
 
     elif isinstance(node, capa.engine.Feature):
-        return FeatureNode(feature=frz.feature_from_capa(node))
+        return FeatureNode(feature=frzf.feature_from_capa(node))
 
     else:
         assert_never(node)
 
 
 def node_to_capa(
-    node: Node, children: List[Union[capa.engine.Statement, capa.engine.Feature]]
+    node: Node, children: list[Union[capa.engine.Statement, capa.engine.Feature]]
 ) -> Union[capa.engine.Statement, capa.engine.Feature]:
     if isinstance(node, StatementNode):
         if isinstance(node.statement, CompoundStatement):
@@ -240,16 +305,16 @@ class Match(FrozenModel):
     args:
       success: did the node match?
       node: the logic node or feature node.
-      children: any children of the logic node. not relevent for features, can be empty.
+      children: any children of the logic node. not relevant for features, can be empty.
       locations: where the feature matched. not relevant for logic nodes (except range), can be empty.
       captures: captured values from the string/regex feature, and the locations of those values.
     """
 
     success: bool
     node: Node
-    children: Tuple["Match", ...]
-    locations: Tuple[frz.Address, ...]
-    captures: Dict[str, Tuple[frz.Address, ...]]
+    children: tuple["Match", ...]
+    locations: tuple[frz.Address, ...]
+    captures: dict[str, tuple[frz.Address, ...]]
 
     @classmethod
     def from_capa(
@@ -308,9 +373,11 @@ class Match(FrozenModel):
                     # e.g. `contain loop/30c4c78e29bf4d54894fc74f664c62e8` -> `basic block`
                     #
                     # note! replace `node`
+                    # subscopes cannot have both a static and dynamic scope set
+                    assert None in (rule.scopes.static, rule.scopes.dynamic)
                     node = StatementNode(
                         statement=SubscopeStatement(
-                            scope=rule.meta["scope"],
+                            scope=rule.scopes.static or rule.scopes.dynamic,
                         )
                     )
 
@@ -350,7 +417,7 @@ class Match(FrozenModel):
                             # doc[locations] contains all matches for the given namespace.
                             # for example, the feature might be `match: anti-analysis/packer`
                             # which matches against "generic unpacker" and "UPX".
-                            # in this case, doc[locations] contains locations for *both* of thse.
+                            # in this case, doc[locations] contains locations for *both* of those.
                             #
                             # rule_matches contains the matches for the specific rule.
                             # this is a subset of doc[locations].
@@ -367,7 +434,7 @@ class Match(FrozenModel):
             captures={capture: tuple(captures[capture]) for capture in captures},
         )
 
-    def to_capa(self, rules_by_name: Dict[str, capa.rules.Rule]) -> capa.engine.Result:
+    def to_capa(self, rules_by_name: dict[str, capa.rules.Rule]) -> capa.engine.Result:
         children = [child.to_capa(rules_by_name) for child in self.children]
         statement = node_to_capa(self.node, [child.statement for child in children])
 
@@ -424,7 +491,7 @@ class AttackSpec(FrozenModel):
       id: like `Identifier` above, perhaps "T1059.006"
     """
 
-    parts: Tuple[str, ...]
+    parts: tuple[str, ...]
     tactic: str
     technique: str
     subtechnique: str
@@ -464,7 +531,7 @@ class MBCSpec(FrozenModel):
       id: like `Identifier` above, perhaps "E1056.m01"
     """
 
-    parts: Tuple[str, ...]
+    parts: tuple[str, ...]
     objective: str
     behavior: str
     method: str
@@ -504,12 +571,12 @@ class MaecMetadata(FrozenModel):
 class RuleMetadata(FrozenModel):
     name: str
     namespace: Optional[str] = None
-    authors: Tuple[str, ...]
-    scope: capa.rules.Scope
-    attack: Tuple[AttackSpec, ...] = Field(alias="att&ck")
-    mbc: Tuple[MBCSpec, ...]
-    references: Tuple[str, ...]
-    examples: Tuple[str, ...]
+    authors: tuple[str, ...]
+    scopes: capa.rules.Scopes
+    attack: tuple[AttackSpec, ...] = Field(alias="att&ck")
+    mbc: tuple[MBCSpec, ...]
+    references: tuple[str, ...]
+    examples: tuple[str, ...]
     description: str
 
     lib: bool = Field(False, alias="lib")
@@ -522,7 +589,7 @@ class RuleMetadata(FrozenModel):
             name=rule.meta.get("name"),
             namespace=rule.meta.get("namespace"),
             authors=rule.meta.get("authors"),
-            scope=capa.rules.Scope(rule.meta.get("scope")),
+            scopes=capa.rules.Scopes.from_dict(rule.meta.get("scopes")),
             attack=tuple(map(AttackSpec.from_str, rule.meta.get("att&ck", []))),
             mbc=tuple(map(MBCSpec.from_str, rule.meta.get("mbc", []))),
             references=rule.meta.get("references", []),
@@ -553,16 +620,16 @@ class RuleMatches(FrozenModel):
 
     meta: RuleMetadata
     source: str
-    matches: Tuple[Tuple[frz.Address, Match], ...]
+    matches: tuple[tuple[frz.Address, Match], ...]
 
 
 class ResultDocument(FrozenModel):
     meta: Metadata
-    rules: Dict[str, RuleMatches]
+    rules: dict[str, RuleMatches]
 
     @classmethod
     def from_capa(cls, meta: Metadata, rules: RuleSet, capabilities: MatchResults) -> "ResultDocument":
-        rule_matches: Dict[str, RuleMatches] = {}
+        rule_matches: dict[str, RuleMatches] = {}
         for rule_name, matches in capabilities.items():
             rule = rules[rule_name]
 
@@ -580,10 +647,10 @@ class ResultDocument(FrozenModel):
 
         return ResultDocument(meta=meta, rules=rule_matches)
 
-    def to_capa(self) -> Tuple[Metadata, Dict]:
-        capabilities: Dict[
-            str, List[Tuple[capa.features.address.Address, capa.features.common.Result]]
-        ] = collections.defaultdict(list)
+    def to_capa(self) -> tuple[Metadata, dict]:
+        capabilities: dict[str, list[tuple[capa.features.address.Address, capa.features.common.Result]]] = (
+            collections.defaultdict(list)
+        )
 
         # this doesn't quite work because we don't have the rule source for rules that aren't matched.
         rules_by_name = {
@@ -600,4 +667,5 @@ class ResultDocument(FrozenModel):
 
     @classmethod
     def from_file(cls, path: Path) -> "ResultDocument":
-        return cls.model_validate_json(path.read_text(encoding="utf-8"))
+        report = load_json_from_path(path)
+        return cls.model_validate(report)

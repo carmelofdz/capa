@@ -1,10 +1,18 @@
 # -*- mode: python -*-
 # Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
-import os.path
-import subprocess
+import sys
 
-import wcwidth
+import capa.rules.cache
 
+from pathlib import Path
+
+# SPECPATH is a global variable which points to .spec file path
+capa_dir = Path(SPECPATH).parent.parent
+rules_dir = capa_dir / 'rules'
+cache_dir = capa_dir / 'cache'
+
+if not capa.rules.cache.generate_rule_cache(rules_dir, cache_dir):
+    sys.exit(-1)
 
 a = Analysis(
     # when invoking pyinstaller from the project root,
@@ -17,17 +25,9 @@ a = Analysis(
         # when invoking pyinstaller from the project root,
         # this gets invoked from the directory of the spec file,
         # i.e. ./.github/pyinstaller
-        ("../../assets", "assets"),
         ("../../rules", "rules"),
         ("../../sigs", "sigs"),
         ("../../cache", "cache"),
-        # capa.render.default uses tabulate that depends on wcwidth.
-        # it seems wcwidth uses a json file `version.json`
-        # and this doesn't get picked up by pyinstaller automatically.
-        # so we manually embed the wcwidth resources here.
-        #
-        # ref: https://stackoverflow.com/a/62278462/87207
-        (os.path.dirname(wcwidth.__file__), "wcwidth"),
     ],
     # when invoking pyinstaller from the project root,
     # this gets run from the project root.
@@ -40,11 +40,6 @@ a = Analysis(
         "tkinter",
         "_tkinter",
         "Tkinter",
-        # tqdm provides renderers for ipython,
-        # however, this drags in a lot of dependencies.
-        # since we don't spawn a notebook, we can safely remove these.
-        "IPython",
-        "ipywidgets",
         # these are pulled in by networkx
         # but we don't need to compute the strongly connected components.
         "numpy",
@@ -62,7 +57,10 @@ a = Analysis(
         "qt5",
         "pyqtwebengine",
         "pyasn1",
+        # don't pull in Binary Ninja/IDA bindings that should
+        # only be installed locally.
         "binaryninja",
+        "ida",
     ],
 )
 

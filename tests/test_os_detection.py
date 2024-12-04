@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2022 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -90,6 +90,12 @@ def test_elf_android_notes():
     path = get_data_path_by_name("1038a2")
     with Path(path).open("rb") as f:
         assert capa.features.extractors.elf.detect_elf_os(f) == "android"
+
+
+def test_elf_go_buildinfo():
+    path = get_data_path_by_name("3da7c")
+    with Path(path).open("rb") as f:
+        assert capa.features.extractors.elf.detect_elf_os(f) == "linux"
 
 
 def test_elf_parse_capa_pyinstaller_header():

@@ -8,7 +8,6 @@
 import sys
 import logging
 import argparse
-from typing import Set
 from pathlib import Path
 
 import capa.main
@@ -18,7 +17,7 @@ from capa.features.common import Feature
 logger = logging.getLogger("detect_duplicate_features")
 
 
-def get_features(rule_path: str) -> Set[Feature]:
+def get_features(rule_path: str) -> set[Feature]:
     """
     Extracts all features from a given rule file.
 
@@ -48,7 +47,7 @@ def find_overlapping_rules(new_rule_path, rules_path):
     overlapping_rules = []
 
     # capa.rules.RuleSet stores all rules in given paths
-    ruleset = capa.main.get_rules(rules_path)
+    ruleset = capa.rules.get_rules(rules_path)
 
     for rule_name, rule in ruleset.rules.items():
         rule_features = rule.extract_all_features()

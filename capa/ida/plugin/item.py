@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -7,7 +7,7 @@
 # See the License for the specific language governing permissions and limitations under the License.
 
 import codecs
-from typing import List, Iterator, Optional
+from typing import Iterator, Optional
 
 import idc
 import idaapi
@@ -36,11 +36,11 @@ def ea_to_hex(ea):
 class CapaExplorerDataItem:
     """store data for CapaExplorerDataModel"""
 
-    def __init__(self, parent: Optional["CapaExplorerDataItem"], data: List[str], can_check=True):
+    def __init__(self, parent: Optional["CapaExplorerDataItem"], data: list[str], can_check=True):
         """initialize item"""
         self.pred = parent
         self._data = data
-        self._children: List["CapaExplorerDataItem"] = []
+        self._children: list["CapaExplorerDataItem"] = []
         self._checked = False
         self._can_check = can_check
 

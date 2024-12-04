@@ -1,4 +1,4 @@
-# Run capa against loaded Ghidra database
+# Run capa against loaded Ghidra database and render results in Ghidra Console window
 # @author Mike Hunhoff (mehunhoff@google.com)
 # @category Python 3.capa
 
@@ -19,6 +19,7 @@ import capa.main
 import capa.rules
 import capa.ghidra.helpers
 import capa.render.default
+import capa.capabilities.common
 import capa.features.extractors.ghidra.extractor
 
 logger = logging.getLogger("capa_ghidra")
@@ -68,18 +69,18 @@ def run_headless():
     rules_path = pathlib.Path(args.rules)
 
     logger.debug("rule path: %s", rules_path)
-    rules = capa.main.get_rules([rules_path])
+    rules = capa.rules.get_rules([rules_path])
 
     meta = capa.ghidra.helpers.collect_metadata([rules_path])
     extractor = capa.features.extractors.ghidra.extractor.GhidraFeatureExtractor()
 
-    capabilities, counts = capa.main.find_capabilities(rules, extractor, False)
+    capabilities, counts = capa.capabilities.common.find_capabilities(rules, extractor, False)
 
     meta.analysis.feature_counts = counts["feature_counts"]
     meta.analysis.library_functions = counts["library_functions"]
-    meta.analysis.layout = capa.main.compute_layout(rules, extractor, capabilities)
+    meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities)
 
-    if capa.main.has_file_limitation(rules, capabilities, is_standalone=True):
+    if capa.capabilities.common.has_file_limitation(rules, capabilities, is_standalone=True):
         logger.info("capa encountered warnings during analysis")
 
     if args.json:
@@ -118,18 +119,18 @@ def run_ui():
     rules_path: pathlib.Path = pathlib.Path(rules_dir)
     logger.info("running capa using rules from %s", str(rules_path))
 
-    rules = capa.main.get_rules([rules_path])
+    rules = capa.rules.get_rules([rules_path])
 
     meta = capa.ghidra.helpers.collect_metadata([rules_path])
     extractor = capa.features.extractors.ghidra.extractor.GhidraFeatureExtractor()
 
-    capabilities, counts = capa.main.find_capabilities(rules, extractor, True)
+    capabilities, counts = capa.capabilities.common.find_capabilities(rules, extractor, True)
 
     meta.analysis.feature_counts = counts["feature_counts"]
     meta.analysis.library_functions = counts["library_functions"]
-    meta.analysis.layout = capa.main.compute_layout(rules, extractor, capabilities)
+    meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities)
 
-    if capa.main.has_file_limitation(rules, capabilities, is_standalone=False):
+    if capa.capabilities.common.has_file_limitation(rules, capabilities, is_standalone=False):
         logger.info("capa encountered warnings during analysis")
 
     if verbose == "vverbose":
@@ -159,8 +160,8 @@ def main():
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 8):
+    if sys.version_info < (3, 10):
         from capa.exceptions import UnsupportedRuntimeError
 
-        raise UnsupportedRuntimeError("This version of capa can only be used with Python 3.8+")
+        raise UnsupportedRuntimeError("This version of capa can only be used with Python 3.10+")
     sys.exit(main())

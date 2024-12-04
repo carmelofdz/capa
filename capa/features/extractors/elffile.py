@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2021 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -7,17 +7,16 @@
 # See the License for the specific language governing permissions and limitations under the License.
 import io
 import logging
-from typing import Tuple, Iterator
+from typing import Iterator
 from pathlib import Path
 
-from elftools.elf.elffile import ELFFile, SymbolTableSection
-from elftools.elf.relocation import RelocationSection
+from elftools.elf.elffile import ELFFile, DynamicSegment, SymbolTableSection
 
 import capa.features.extractors.common
 from capa.features.file import Export, Import, Section
 from capa.features.common import OS, FORMAT_ELF, Arch, Format, Feature
 from capa.features.address import NO_ADDRESS, FileOffsetAddress, AbsoluteVirtualAddress
-from capa.features.extractors.base_extractor import FeatureExtractor
+from capa.features.extractors.base_extractor import SampleHashes, StaticFeatureExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +46,47 @@ def extract_file_export_names(elf: ELFFile, **kwargs):
 
             yield Export(symbol.name), AbsoluteVirtualAddress(symbol.entry.st_value)
 
+    for segment in elf.iter_segments():
+        if not isinstance(segment, DynamicSegment):
+            continue
+
+        tab_ptr, tab_offset = segment.get_table_offset("DT_SYMTAB")
+        if tab_ptr is None or tab_offset is None:
+            logger.debug("Dynamic segment doesn't contain DT_SYMTAB")
+            continue
+
+        logger.debug("Dynamic segment contains %s symbols: ", segment.num_symbols())
+
+        for symbol in segment.iter_symbols():
+            # The following conditions are based on the following article
+            # http://www.m4b.io/elf/export/binary/analysis/2015/05/25/what-is-an-elf-export.html
+            if not symbol.name:
+                continue
+            if symbol.entry.st_info.type not in ["STT_FUNC", "STT_OBJECT", "STT_IFUNC"]:
+                continue
+            if symbol.entry.st_value == 0:
+                continue
+            if symbol.entry.st_shndx == "SHN_UNDEF":
+                continue
+
+            yield Export(symbol.name), AbsoluteVirtualAddress(symbol.entry.st_value)
+
 
 def extract_file_import_names(elf: ELFFile, **kwargs):
     # Create a dictionary to store symbol names by their index
     symbol_names = {}
 
     # Extract symbol names and store them in the dictionary
-    for section in elf.iter_sections():
-        if not isinstance(section, SymbolTableSection):
+    for segment in elf.iter_segments():
+        if not isinstance(segment, DynamicSegment):
             continue
 
-        for _, symbol in enumerate(section.iter_symbols()):
+        tab_ptr, tab_offset = segment.get_table_offset("DT_SYMTAB")
+        if tab_ptr is None or tab_offset is None:
+            logger.debug("Dynamic segment doesn't contain DT_SYMTAB")
+            continue
+
+        for _, symbol in enumerate(segment.iter_symbols()):
             # The following conditions are based on the following article
             # http://www.m4b.io/elf/export/binary/analysis/2015/05/25/what-is-an-elf-export.html
             if not symbol.name:
@@ -73,21 +102,28 @@ def extract_file_import_names(elf: ELFFile, **kwargs):
 
             symbol_names[_] = symbol.name
 
-    for section in elf.iter_sections():
-        if not isinstance(section, RelocationSection):
+    for segment in elf.iter_segments():
+        if not isinstance(segment, DynamicSegment):
             continue
 
-        if section["sh_entsize"] == 0:
-            logger.debug("Symbol table '%s' has a sh_entsize of zero!", section.name)
-            continue
+        relocation_tables = segment.get_relocation_tables()
+        logger.debug("Dynamic Segment contains %s relocation tables:", len(relocation_tables))
 
-        logger.debug("Symbol table '%s' contains %s entries:", section.name, section.num_relocations())
+        for relocation_table in relocation_tables.values():
+            relocations = []
+            for i in range(relocation_table.num_relocations()):
+                try:
+                    relocations.append(relocation_table.get_relocation(i))
+                except TypeError:
+                    # ELF is corrupt and the relocation table is invalid,
+                    # so stop processing it.
+                    break
 
-        for relocation in section.iter_relocations():
-            # Extract the symbol name from the symbol table using the symbol index in the relocation
-            if relocation["r_info_sym"] not in symbol_names:
-                continue
-            yield Import(symbol_names[relocation["r_info_sym"]]), FileOffsetAddress(relocation["r_offset"])
+            for relocation in relocations:
+                # Extract the symbol name from the symbol table using the symbol index in the relocation
+                if relocation["r_info_sym"] not in symbol_names:
+                    continue
+                yield Import(symbol_names[relocation["r_info_sym"]]), FileOffsetAddress(relocation["r_offset"])
 
 
 def extract_file_section_names(elf: ELFFile, **kwargs):
@@ -122,11 +158,15 @@ def extract_file_arch(elf: ELFFile, **kwargs):
         yield Arch("i386"), NO_ADDRESS
     elif arch == "x64":
         yield Arch("amd64"), NO_ADDRESS
+    elif arch == "ARM":
+        yield Arch("arm"), NO_ADDRESS
+    elif arch == "AArch64":
+        yield Arch("aarch64"), NO_ADDRESS
     else:
         logger.warning("unsupported architecture: %s", arch)
 
 
-def extract_file_features(elf: ELFFile, buf: bytes) -> Iterator[Tuple[Feature, int]]:
+def extract_file_features(elf: ELFFile, buf: bytes) -> Iterator[tuple[Feature, int]]:
     for file_handler in FILE_HANDLERS:
         for feature, addr in file_handler(elf=elf, buf=buf):  # type: ignore
             yield feature, addr
@@ -142,7 +182,7 @@ FILE_HANDLERS = (
 )
 
 
-def extract_global_features(elf: ELFFile, buf: bytes) -> Iterator[Tuple[Feature, int]]:
+def extract_global_features(elf: ELFFile, buf: bytes) -> Iterator[tuple[Feature, int]]:
     for global_handler in GLOBAL_HANDLERS:
         for feature, addr in global_handler(elf=elf, buf=buf):  # type: ignore
             yield feature, addr
@@ -154,9 +194,9 @@ GLOBAL_HANDLERS = (
 )
 
 
-class ElfFeatureExtractor(FeatureExtractor):
+class ElfFeatureExtractor(StaticFeatureExtractor):
     def __init__(self, path: Path):
-        super().__init__()
+        super().__init__(SampleHashes.from_bytes(path.read_bytes()))
         self.path: Path = path
         self.elf = ELFFile(io.BytesIO(path.read_bytes()))
 

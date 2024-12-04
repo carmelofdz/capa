@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at: [package root]/LICENSE.txt
@@ -6,7 +6,7 @@
 #  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
 import re
-from typing import Dict, Optional
+from typing import Optional
 from collections import Counter
 
 import idc
@@ -194,13 +194,17 @@ class CapaExplorerRulegenPreview(QtWidgets.QTextEdit):
             "    namespace: <insert_namespace>",
             "    authors:",
             f"      - {author}",
-            f"    scope: {scope}",
+            "    scopes:",
+            f"      static: {scope}",
+            "      dynamic: unsupported",
             "    references:",
             "      - <insert_references>",
             "    examples:",
-            f"      - {capa.ida.helpers.get_file_md5().upper()}:{hex(ea)}"
-            if ea
-            else f"      - {capa.ida.helpers.get_file_md5().upper()}",
+            (
+                f"      - {capa.ida.helpers.get_file_md5().upper()}:{hex(ea)}"
+                if ea
+                else f"      - {capa.ida.helpers.get_file_md5().upper()}"
+            ),
             "  features:",
         ]
         self.setText("\n".join(metadata_default))
@@ -760,7 +764,7 @@ class CapaExplorerRulegenEditor(QtWidgets.QTreeWidget):
 
             node = self.make_child_node_from_feature(parent, parse_yaml_line(line.strip()))
 
-            # append our new node in case its a parent for another node
+            # append our new node in case it's a parent for another node
             if node:
                 stack.append(node)
 
@@ -1015,7 +1019,7 @@ class CapaExplorerRulegenFeatures(QtWidgets.QTreeWidget):
 
         return o
 
-    def load_features(self, file_features, func_features: Optional[Dict] = None):
+    def load_features(self, file_features, func_features: Optional[dict] = None):
         """ """
         self.parse_features_for_tree(self.new_parent_node(self, ("File Scope",)), file_features)
         if func_features:

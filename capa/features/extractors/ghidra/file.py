@@ -7,7 +7,7 @@
 # See the License for the specific language governing permissions and limitations under the License.
 import re
 import struct
-from typing import List, Tuple, Iterator
+from typing import Iterator
 
 from ghidra.program.model.symbol import SourceType, SymbolType
 
@@ -22,7 +22,7 @@ from capa.features.address import NO_ADDRESS, Address, FileOffsetAddress, Absolu
 MAX_OFFSET_PE_AFTER_MZ = 0x200
 
 
-def find_embedded_pe(block_bytez: bytes, mz_xor: List[Tuple[bytes, bytes, int]]) -> Iterator[Tuple[int, int]]:
+def find_embedded_pe(block_bytez: bytes, mz_xor: list[tuple[bytes, bytes, int]]) -> Iterator[tuple[int, int]]:
     """check segment for embedded PE
 
     adapted for Ghidra from:
@@ -34,7 +34,7 @@ def find_embedded_pe(block_bytez: bytes, mz_xor: List[Tuple[bytes, bytes, int]])
         for match in re.finditer(re.escape(mzx), block_bytez):
             todo.append((match.start(), mzx, pex, i))
 
-    seg_max = len(block_bytez)  # type: ignore [name-defined] # noqa: F821
+    seg_max = len(block_bytez)  # noqa: F821
     while len(todo):
         off, mzx, pex, i = todo.pop()
 
@@ -60,11 +60,11 @@ def find_embedded_pe(block_bytez: bytes, mz_xor: List[Tuple[bytes, bytes, int]])
             yield off, i
 
 
-def extract_file_embedded_pe() -> Iterator[Tuple[Feature, Address]]:
+def extract_file_embedded_pe() -> Iterator[tuple[Feature, Address]]:
     """extract embedded PE features"""
 
     # pre-compute XOR pairs
-    mz_xor: List[Tuple[bytes, bytes, int]] = [
+    mz_xor: list[tuple[bytes, bytes, int]] = [
         (
             capa.features.extractors.helpers.xor_static(b"MZ", i),
             capa.features.extractors.helpers.xor_static(b"PE", i),
@@ -84,14 +84,14 @@ def extract_file_embedded_pe() -> Iterator[Tuple[Feature, Address]]:
             yield Characteristic("embedded pe"), FileOffsetAddress(ea)
 
 
-def extract_file_export_names() -> Iterator[Tuple[Feature, Address]]:
+def extract_file_export_names() -> Iterator[tuple[Feature, Address]]:
     """extract function exports"""
     st = currentProgram().getSymbolTable()  # type: ignore [name-defined] # noqa: F821
     for addr in st.getExternalEntryPointIterator():
         yield Export(st.getPrimarySymbol(addr).getName()), AbsoluteVirtualAddress(addr.getOffset())
 
 
-def extract_file_import_names() -> Iterator[Tuple[Feature, Address]]:
+def extract_file_import_names() -> Iterator[tuple[Feature, Address]]:
     """extract function imports
 
     1. imports by ordinal:
@@ -112,23 +112,25 @@ def extract_file_import_names() -> Iterator[Tuple[Feature, Address]]:
         if "Ordinal_" in fstr[1]:
             fstr[1] = f"#{fstr[1].split('_')[1]}"
 
-        for name in capa.features.extractors.helpers.generate_symbols(fstr[0][:-4], fstr[1]):
+        for name in capa.features.extractors.helpers.generate_symbols(fstr[0][:-4], fstr[1], include_dll=True):
             yield Import(name), AbsoluteVirtualAddress(addr)
 
 
-def extract_file_section_names() -> Iterator[Tuple[Feature, Address]]:
+def extract_file_section_names() -> Iterator[tuple[Feature, Address]]:
     """extract section names"""
 
     for block in currentProgram().getMemory().getBlocks():  # type: ignore [name-defined] # noqa: F821
         yield Section(block.getName()), AbsoluteVirtualAddress(block.getStart().getOffset())
 
 
-def extract_file_strings() -> Iterator[Tuple[Feature, Address]]:
+def extract_file_strings() -> Iterator[tuple[Feature, Address]]:
     """extract ASCII and UTF-16 LE strings"""
 
     for block in currentProgram().getMemory().getBlocks():  # type: ignore [name-defined] # noqa: F821
-        if block.isInitialized():
-            p_bytes = capa.features.extractors.ghidra.helpers.get_block_bytes(block)
+        if not block.isInitialized():
+            continue
+
+        p_bytes = capa.features.extractors.ghidra.helpers.get_block_bytes(block)
 
         for s in capa.features.extractors.strings.extract_ascii_strings(p_bytes):
             offset = block.getStart().getOffset() + s.offset
@@ -139,7 +141,7 @@ def extract_file_strings() -> Iterator[Tuple[Feature, Address]]:
             yield String(s.s), FileOffsetAddress(offset)
 
 
-def extract_file_function_names() -> Iterator[Tuple[Feature, Address]]:
+def extract_file_function_names() -> Iterator[tuple[Feature, Address]]:
     """
     extract the names of statically-linked library functions.
     """
@@ -160,7 +162,7 @@ def extract_file_function_names() -> Iterator[Tuple[Feature, Address]]:
                 yield FunctionName(name[1:]), addr
 
 
-def extract_file_format() -> Iterator[Tuple[Feature, Address]]:
+def extract_file_format() -> Iterator[tuple[Feature, Address]]:
     ef = currentProgram().getExecutableFormat()  # type: ignore [name-defined] # noqa: F821
     if "PE" in ef:
         yield Format(FORMAT_PE), NO_ADDRESS
@@ -173,7 +175,7 @@ def extract_file_format() -> Iterator[Tuple[Feature, Address]]:
         raise NotImplementedError(f"unexpected file format: {ef}")
 
 
-def extract_features() -> Iterator[Tuple[Feature, Address]]:
+def extract_features() -> Iterator[tuple[Feature, Address]]:
     """extract file features"""
     for file_handler in FILE_HANDLERS:
         for feature, addr in file_handler():
