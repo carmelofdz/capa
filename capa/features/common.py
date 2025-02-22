@@ -1,10 +1,17 @@
-# Copyright (C) 2021 Mandiant, Inc. All Rights Reserved.
+# Copyright 2021 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 import re
 import abc
@@ -85,7 +92,7 @@ class Result:
         self.success = success
         self.statement = statement
         self.children = children
-        self.locations = locations if locations is not None else set()
+        self.locations = frozenset(locations) if locations is not None else frozenset()
 
     def __eq__(self, other):
         if isinstance(other, bool):
@@ -97,6 +104,25 @@ class Result:
 
     def __nonzero__(self):
         return self.success
+
+    def __str__(self):
+        # as this object isn't user facing, this formatting is just to help with debugging
+
+        lines: list[str] = []
+
+        def rec(m: "Result", indent: int):
+            if isinstance(m.statement, capa.engine.Statement):
+                line = ("  " * indent) + str(m.statement.name) + " " + str(m.success)
+            else:
+                line = ("  " * indent) + str(m.statement) + " " + str(m.success) + " " + str(m.locations)
+
+            lines.append(line)
+
+            for child in m.children:
+                rec(child, indent + 1)
+
+        rec(self, 0)
+        return "\n".join(lines)
 
 
 class Feature(abc.ABC):  # noqa: B024
@@ -168,7 +194,11 @@ class Feature(abc.ABC):  # noqa: B024
     def evaluate(self, features: "capa.engine.FeatureSet", short_circuit=True) -> Result:
         capa.perf.counters["evaluate.feature"] += 1
         capa.perf.counters["evaluate.feature." + self.name] += 1
-        return Result(self in features, self, [], locations=features.get(self, set()))
+        success = self in features
+        if success:
+            return Result(True, self, [], locations=features[self])
+        else:
+            return Result(False, self, [], locations=None)
 
 
 class MatchedRule(Feature):

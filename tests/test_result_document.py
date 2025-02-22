@@ -1,10 +1,17 @@
-# Copyright (C) 2022 Mandiant, Inc. All Rights Reserved.
+# Copyright 2022 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
 
 import pytest
@@ -14,6 +21,7 @@ import capa
 import capa.engine as ceng
 import capa.render.result_document as rdoc
 import capa.features.freeze.features as frzf
+from capa.capabilities.common import Capabilities
 
 
 def test_optional_node_from_capa():
@@ -282,4 +290,4 @@ def test_rdoc_to_capa():
 
     meta, capabilites = rd.to_capa()
     assert isinstance(meta, rdoc.Metadata)
-    assert isinstance(capabilites, dict)
+    assert isinstance(capabilites, Capabilities)

@@ -1,10 +1,17 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright 2020 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 run this script from within IDA to test the IDA feature extractor.
 you must have loaded a file referenced by a test case in order
@@ -53,7 +60,6 @@ import io
 import sys
 import inspect
 import logging
-import binascii
 import traceback
 from pathlib import Path
 
@@ -79,7 +85,7 @@ def check_input_file(wanted):
     except UnicodeDecodeError:
         # in IDA 7.5 or so, GetInputFileMD5 started returning raw binary
         # rather than the hex digest
-        found = binascii.hexlify(idautils.GetInputFileMD5()[:15]).decode("ascii").lower()
+        found = bytes.hex(idautils.GetInputFileMD5()[:15]).lower()
 
     if not wanted.startswith(found):
         raise RuntimeError(f"please run the tests against sample with MD5: `{wanted}`")

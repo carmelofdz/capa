@@ -1,11 +1,17 @@
-# Copyright (C) 2024 Mandiant, Inc. All Rights Reserved.
+# Copyright 2024 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
-import binascii
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import cast
 
 import pytest
@@ -295,7 +301,7 @@ FEATURE_PRESENCE_TESTS_BE2_ELF_AARCH64 = sorted(
         (
             "d1e650.ghidra.be2",
             "function=0x1165a4",
-            capa.features.common.Bytes(binascii.unhexlify("E405B89370BA6B419CD7925275BF6FCC1E8360CC")),
+            capa.features.common.Bytes(bytes.fromhex("E405B89370BA6B419CD7925275BF6FCC1E8360CC")),
             True,
         ),
         # # don't extract byte features for obvious strings

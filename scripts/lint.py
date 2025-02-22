@@ -1,17 +1,23 @@
+# Copyright 2020 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Check the given capa rules for style issues.
 
 Usage:
 
    $ python scripts/lint.py rules/
-
-Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
-Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
-You may obtain a copy of the License at: [package root]/LICENSE.txt
-Unless required by applicable law or agreed to in writing, software distributed under the License
- is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and limitations under the License.
 """
 
 import gc
@@ -27,6 +33,7 @@ import logging
 import argparse
 import itertools
 import posixpath
+from typing import Any, Dict, List
 from pathlib import Path
 from dataclasses import field, dataclass
 
@@ -68,11 +75,11 @@ class Lint:
     WARN = "[yellow]WARN[/yellow]"
     FAIL = "[red]FAIL[/red]"
 
-    name = "lint"
-    level = FAIL
-    recommendation = ""
+    name: str = "lint"
+    level: str = FAIL
+    recommendation: str = ""
 
-    def check_rule(self, ctx: Context, rule: Rule):
+    def check_rule(self, ctx: Context, rule: Rule) -> bool:
         return False
 
 
@@ -188,6 +195,7 @@ class InvalidDynamicScope(Lint):
             "file",
             "process",
             "thread",
+            "span of calls",
             "call",
             "unsupported",
         )
@@ -351,10 +359,10 @@ def get_sample_capabilities(ctx: Context, path: Path) -> set[str]:
         disable_progress=True,
     )
 
-    capabilities, _ = capa.capabilities.common.find_capabilities(ctx.rules, extractor, disable_progress=True)
+    capabilities = capa.capabilities.common.find_capabilities(ctx.rules, extractor, disable_progress=True)
     # mypy doesn't seem to be happy with the MatchResults type alias & set(...keys())?
     # so we ignore a few types here.
-    capabilities = set(capabilities.keys())  # type: ignore
+    capabilities = set(capabilities.matches.keys())  # type: ignore
     assert isinstance(capabilities, set)
 
     logger.debug("computed results: %s: %d capabilities", nice_path, len(capabilities))
@@ -471,6 +479,87 @@ class NotNotUnderAnd(Lint):
         return self.violation
 
 
+class RuleDependencyScopeMismatch(Lint):
+    name = "rule dependency scope mismatch"
+    level = Lint.FAIL
+    recommendation_template: str = "rule '{:s}' ({:s}) depends on rule '{:s}' ({:s})."
+
+    def check_rule(self, ctx: Context, rule: Rule):
+        # get all rules by name for quick lookup
+        rules_by_name = {r.name: r for r in ctx.rules.rules.values()}
+
+        # get all dependencies of this rule
+        namespaces = ctx.rules.rules_by_namespace
+        dependencies = rule.get_dependencies(namespaces)
+
+        for dep_name in dependencies:
+            if dep_name not in rules_by_name:
+                # another lint will catch missing dependencies
+                continue
+
+            dep_rule = rules_by_name[dep_name]
+
+            if rule.scopes.static and not self._is_static_scope_compatible(rule, dep_rule):
+                self.recommendation = self.recommendation_template.format(
+                    rule.name,
+                    rule.scopes.static or "static: unsupported",
+                    dep_name,
+                    dep_rule.scopes.static or "static: unsupported",
+                )
+                return True
+
+            if rule.scopes.dynamic and not self._is_dynamic_scope_compatible(rule, dep_rule):
+                self.recommendation = self.recommendation_template.format(
+                    rule.name,
+                    rule.scopes.dynamic or "dynamic: unsupported",
+                    dep_name,
+                    dep_rule.scopes.dynamic or "dynamic: unsupported",
+                )
+                return True
+
+        return False
+
+    @staticmethod
+    def _is_static_scope_compatible(parent: Rule, child: Rule) -> bool:
+        """
+        A child rule's scope is compatible if it is equal to or lower than the parent scope.
+        """
+
+        if parent.scopes.static and not child.scopes.static and child.is_subscope_rule():
+            # this is ok: the child isn't a static subscope rule
+            return True
+
+        if parent.scopes.static and not child.scopes.static:
+            # This is not really ok, but we can't really be sure here:
+            #  the parent is a static rule, and the child is not,
+            #  and we don't know if this is strictly required to match.
+            # Assume for now it is not.
+            return True
+
+        assert child.scopes.static is not None
+        return capa.rules.is_subscope_compatible(parent.scopes.static, child.scopes.static)
+
+    @staticmethod
+    def _is_dynamic_scope_compatible(parent: Rule, child: Rule) -> bool:
+        """
+        A child rule's scope is compatible if it is equal to or lower than the parent scope.
+        """
+
+        if parent.scopes.dynamic and not child.scopes.dynamic and child.is_subscope_rule():
+            # this is ok: the child isn't a dynamic subscope rule
+            return True
+
+        if parent.scopes.dynamic and not child.scopes.dynamic:
+            # This is not really ok, but we can't really be sure here:
+            #  the parent is a dynamic rule, and the child is not,
+            #  and we don't know if this is strictly required to match.
+            # Assume for now it is not.
+            return True
+
+        assert child.scopes.dynamic is not None
+        return capa.rules.is_subscope_compatible(parent.scopes.dynamic, child.scopes.dynamic)
+
+
 class OptionalNotUnderAnd(Lint):
     name = "rule contains an `optional` or `0 or more` statement that's not found under an `and` statement"
     recommendation = "clarify the rule logic and ensure `optional` and `0 or more` is always found under `and`"
@@ -490,6 +579,88 @@ class OptionalNotUnderAnd(Lint):
                     rec(child)
 
         rec(rule.statement)
+
+        return self.violation
+
+
+class DuplicateFeatureUnderStatement(Lint):
+    name = "rule contains a duplicate features"
+    recommendation = "remove the duplicate features"
+    recommendation_template = '\n\tduplicate line: "{:s}"\t: line numbers: {:s}'
+    violation = False
+
+    def check_rule(self, ctx: Context, rule: Rule) -> bool:
+        self.violation = False
+        self.recommendation = ""
+        STATEMENTS = frozenset(
+            {
+                "or",
+                "and",
+                "not",
+                "optional",
+                "some",
+                "basic block",
+                "function",
+                "instruction",
+                "call",
+                " or more",
+            }
+        )
+        # rule.statement discards the duplicate features by default so
+        # need to use the rule definition to check for duplicates
+        data = rule._get_ruamel_yaml_parser().load(rule.definition)
+
+        def get_line_number(line: Dict[str, Any]) -> int:
+            lc = getattr(line, "lc", None)
+            if lc and hasattr(lc, "line"):
+                return lc.line + 1
+            return 0
+
+        def is_statement(key: str) -> bool:
+            # to generalize the check for 'n or more' statements
+            return any(statement in key for statement in STATEMENTS)
+
+        def get_feature_key(feature_dict: Dict[str, Any]) -> str:
+            # need this for generating key for multi-lined feature
+            # for example,         - string: /dbghelp\.dll/i
+            #                        description: WindBG
+            parts = []
+            for key, value in list(feature_dict.items()):
+                parts.append(f"{key}: {value}")
+            return "- " + ", ".join(parts)
+
+        def find_duplicates(features: List[Any]) -> None:
+            if not isinstance(features, list):
+                return
+
+            seen_features: Dict[str, List[int]] = {}
+            for item in features:
+                if not isinstance(item, dict):
+                    continue
+
+                if any(is_statement(key) for key in item.keys()):
+                    for key, value in item.items():
+                        if is_statement(key):
+                            # recursively check nested features
+                            find_duplicates(value)
+                    continue
+
+                feature_key = get_feature_key(item)
+                line_num = get_line_number(item)
+                if feature_key in seen_features:
+                    self.violation = True
+                    seen_features[feature_key].append(line_num)
+                else:
+                    seen_features[feature_key] = [line_num]
+            for feature_key, line_numbers in seen_features.items():
+                if len(line_numbers) > 1:
+                    sorted_lines = sorted(line_numbers)
+                    self.recommendation += self.recommendation_template.format(
+                        feature_key, ", ".join(str(line) for line in sorted_lines)
+                    )
+
+        features = data["rule"].get("features", [])
+        find_duplicates(features)
 
         return self.violation
 
@@ -813,6 +984,8 @@ LOGIC_LINTS = (
     OrStatementWithAlwaysTrueChild(),
     NotNotUnderAnd(),
     OptionalNotUnderAnd(),
+    DuplicateFeatureUnderStatement(),
+    RuleDependencyScopeMismatch(),
 )
 
 
@@ -908,7 +1081,7 @@ def lint(ctx: Context):
     source_rules = [rule for rule in ctx.rules.rules.values() if not rule.is_subscope_rule()]
     n_rules: int = len(source_rules)
 
-    with capa.helpers.CapaProgressBar(transient=True, console=capa.helpers.log_console) as pbar:
+    with capa.helpers.CapaProgressBar(transient=True, console=capa.helpers.log_console, disable=True) as pbar:
         task = pbar.add_task(description="linting", total=n_rules, unit="rule")
         for rule in source_rules:
             name = rule.name

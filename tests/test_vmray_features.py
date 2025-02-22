@@ -1,10 +1,17 @@
-# Copyright (C) 2024 Mandiant, Inc. All Rights Reserved.
+# Copyright 2024 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 import fixtures
 
@@ -28,6 +35,7 @@ DYNAMIC_VMRAY_FEATURE_PRESENCE_TESTS = sorted(
         ("93b2d1-vmray", "process=(2176:0),thread=2420", capa.features.insn.API("DoesNotExist"), False),
         # call/api
         ("93b2d1-vmray", "process=(2176:0),thread=2420,call=2361", capa.features.insn.API("GetAddrInfoW"), True),
+        ("eb1287-vmray", "process=(4968:0),thread=5992,call=10981", capa.features.insn.API("CreateMutexW"), True),
         # call/string argument
         (
             "93b2d1-vmray",

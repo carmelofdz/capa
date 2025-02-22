@@ -1,10 +1,17 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright 2020 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 import textwrap
 
@@ -506,6 +513,36 @@ def test_meta_scope_keywords():
                 """
             )
         )
+
+
+def test_subscope_same_as_scope():
+    static_scopes = sorted(
+        [e.value for e in capa.rules.STATIC_SCOPES if e not in (capa.rules.Scope.FILE, capa.rules.Scope.GLOBAL)]
+    )
+    dynamic_scopes = sorted(
+        [e.value for e in capa.rules.DYNAMIC_SCOPES if e not in (capa.rules.Scope.FILE, capa.rules.Scope.GLOBAL)]
+    )
+
+    for static_scope in static_scopes:
+        for dynamic_scope in dynamic_scopes:
+            _ = capa.rules.Rule.from_yaml(
+                textwrap.dedent(
+                    f"""
+                    rule:
+                        meta:
+                            name: test rule
+                            scopes:
+                                static: {static_scope}
+                                dynamic: {dynamic_scope}
+                        features:
+                            - or:
+                                - {static_scope}:
+                                    - format: pe
+                                - {dynamic_scope}:
+                                    - format: pe
+                    """
+                )
+            )
 
 
 def test_lib_rules():

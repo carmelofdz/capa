@@ -1,13 +1,19 @@
 #!/usr/bin/env python2
-"""
-Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
-Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
-You may obtain a copy of the License at: [package root]/LICENSE.txt
-Unless required by applicable law or agreed to in writing, software distributed under the License
- is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and limitations under the License.
+# Copyright 2023 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+"""
 detect-binexport2-capabilities.py
 
 Detect capabilities in a BinExport2 file and write the results into the protobuf format.
@@ -94,12 +100,12 @@ def main(argv=None):
     except capa.main.ShouldExitError as e:
         return e.status_code
 
-    capabilities, counts = capa.capabilities.common.find_capabilities(rules, extractor)
+    capabilities = capa.capabilities.common.find_capabilities(rules, extractor)
 
-    meta = capa.loader.collect_metadata(argv, args.input_file, input_format, os_, args.rules, extractor, counts)
-    meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities)
+    meta = capa.loader.collect_metadata(argv, args.input_file, input_format, os_, args.rules, extractor, capabilities)
+    meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities.matches)
 
-    doc = rd.ResultDocument.from_capa(meta, rules, capabilities)
+    doc = rd.ResultDocument.from_capa(meta, rules, capabilities.matches)
     pb = capa.render.proto.doc_to_pb2(doc)
 
     sys.stdout.buffer.write(pb.SerializeToString(deterministic=True))

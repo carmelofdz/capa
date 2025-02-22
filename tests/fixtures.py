@@ -1,12 +1,18 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright 2020 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import binascii
+
 import contextlib
 import collections
 from pathlib import Path
@@ -445,6 +451,14 @@ def get_data_path_by_name(name) -> Path:
             / "dynamic"
             / "vmray"
             / "2f8a79b12a7a989ac7e5f6ec65050036588a92e65aeb6841e08dc228ff0e21b4_min_archive.zip"
+        )
+    elif name.startswith("eb1287-vmray"):
+        return (
+            CD
+            / "data"
+            / "dynamic"
+            / "vmray"
+            / "eb12873c0ce3e9ea109c2a447956cbd10ca2c3e86936e526b2c6e28764999f21_min_archive.zip"
         )
     elif name.startswith("ea2876"):
         return CD / "data" / "ea2876e9175410b6f6719f80ee44b9553960758c7d0f7bed73c0fe9a78d8e669.dll_"
@@ -927,17 +941,17 @@ FEATURE_PRESENCE_TESTS = sorted(
         # insn/string, direct memory reference
         ("mimikatz", "function=0x46D6CE", capa.features.common.String("(null)"), True),
         # insn/bytes
-        ("mimikatz", "function=0x401517", capa.features.common.Bytes(binascii.unhexlify("CA3B0E000000F8AF47")), True),
-        ("mimikatz", "function=0x404414", capa.features.common.Bytes(binascii.unhexlify("0180000040EA4700")), True),
+        ("mimikatz", "function=0x401517", capa.features.common.Bytes(bytes.fromhex("CA3B0E000000F8AF47")), True),
+        ("mimikatz", "function=0x404414", capa.features.common.Bytes(bytes.fromhex("0180000040EA4700")), True),
         # don't extract byte features for obvious strings
         ("mimikatz", "function=0x40105D", capa.features.common.Bytes("SCardControl".encode("utf-16le")), False),
         ("mimikatz", "function=0x40105D", capa.features.common.Bytes("SCardTransmit".encode("utf-16le")), False),
         ("mimikatz", "function=0x40105D", capa.features.common.Bytes("ACR  > ".encode("utf-16le")), False),
         ("mimikatz", "function=0x40105D", capa.features.common.Bytes("nope".encode("ascii")), False),
         # push    offset aAcsAcr1220 ; "ACS..." -> where ACS == 41 00 43 00 == valid pointer to middle of instruction
-        ("mimikatz", "function=0x401000", capa.features.common.Bytes(binascii.unhexlify("FDFF59F647")), False),
+        ("mimikatz", "function=0x401000", capa.features.common.Bytes(bytes.fromhex("FDFF59F647")), False),
         # IDA features included byte sequences read from invalid memory, fixed in #409
-        ("mimikatz", "function=0x44570F", capa.features.common.Bytes(binascii.unhexlify("FF" * 256)), False),
+        ("mimikatz", "function=0x44570F", capa.features.common.Bytes(bytes.fromhex("FF" * 256)), False),
         # insn/bytes, pointer to string bytes
         ("mimikatz", "function=0x44EDEF", capa.features.common.Bytes("INPUTEVENT".encode("utf-16le")), False),
         # insn/characteristic(nzxor)

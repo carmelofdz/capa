@@ -1,10 +1,17 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright 2023 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Proto files generated via protobuf v24.4:
 
@@ -280,11 +287,13 @@ class BinExport2Analysis:
             curr_idx: int = idx
             for _ in range(capa.features.common.THUNK_CHAIN_DEPTH_DELTA):
                 thunk_callees: list[int] = self.idx.callees_by_vertex_index[curr_idx]
-                # if this doesn't hold, then it doesn't seem like this is a thunk,
+                # If this doesn't hold, then it doesn't seem like this is a thunk,
                 # because either, len is:
-                #    0 and the thunk doesn't point to anything, or
+                #    0 and the thunk doesn't point to anything or is indirect, like `call eax`, or
                 #   >1 and the thunk may end up at many functions.
-                assert len(thunk_callees) == 1, f"thunk @ {hex(addr)} failed"
+                # In any case, this doesn't appear to be the sort of thunk we're looking for.
+                if len(thunk_callees) != 1:
+                    break
 
                 thunked_idx: int = thunk_callees[0]
                 thunked_vertex: BinExport2.CallGraph.Vertex = self.be2.call_graph.vertex[thunked_idx]

@@ -1,10 +1,17 @@
-# Copyright (C) 2024 Mandiant, Inc. All Rights Reserved.
+# Copyright 2024 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import re
 from typing import Union, Iterator, Optional
 from collections import defaultdict
@@ -52,6 +59,25 @@ def is_vertex_type(vertex: BinExport2.CallGraph.Vertex, type_: BinExport2.CallGr
 
 # internal to `build_expression_tree`
 # this is unstable: it is subject to change, so don't rely on it!
+def _prune_expression_tree_references_to_tree_index(
+    expression_tree: list[list[int]],
+    tree_index: int,
+):
+    # `i` is the index of the tree node that we'll search for `tree_index`
+    # if we remove `tree_index` from it, and it is now empty,
+    # then we'll need to prune references to `i`.
+    for i, tree_node in enumerate(expression_tree):
+        if tree_index in tree_node:
+            tree_node.remove(tree_index)
+
+            if len(tree_node) == 0:
+                # if the parent node is now empty,
+                # remove references to that parent node.
+                _prune_expression_tree_references_to_tree_index(expression_tree, i)
+
+
+# internal to `build_expression_tree`
+# this is unstable: it is subject to change, so don't rely on it!
 def _prune_expression_tree_empty_shifts(
     be2: BinExport2,
     operand: BinExport2.Operand,
@@ -70,9 +96,7 @@ def _prune_expression_tree_empty_shifts(
             #
             # Which seems to be as if the shift wasn't there (shift of #0)
             # so we want to remove references to this node from any parent nodes.
-            for tree_node in expression_tree:
-                if tree_index in tree_node:
-                    tree_node.remove(tree_index)
+            _prune_expression_tree_references_to_tree_index(expression_tree, tree_index)
 
             return
 
@@ -82,7 +106,20 @@ def _prune_expression_tree_empty_shifts(
 
 # internal to `build_expression_tree`
 # this is unstable: it is subject to change, so don't rely on it!
-def _prune_expression_tree_empty_commas(
+def _fixup_expression_tree_references_to_tree_index(
+    expression_tree: list[list[int]],
+    existing_index: int,
+    new_index: int,
+):
+    for tree_node in expression_tree:
+        for i, index in enumerate(tree_node):
+            if index == existing_index:
+                tree_node[i] = new_index
+
+
+# internal to `build_expression_tree`
+# this is unstable: it is subject to change, so don't rely on it!
+def _fixup_expression_tree_lonely_commas(
     be2: BinExport2,
     operand: BinExport2.Operand,
     expression_tree: list[list[int]],
@@ -94,26 +131,12 @@ def _prune_expression_tree_empty_commas(
 
     if expression.type == BinExport2.Expression.OPERATOR:
         if len(children_tree_indexes) == 1 and expression.symbol == ",":
-            # Due to the above pruning of empty LSL or LSR expressions,
-            # the parents might need to be fixed up.
-            #
-            # Specifically, if the pruned node was part of a comma list with two children,
-            # now there's only a single child, which renders as an extra comma,
-            # so we replace references to the comma node with the immediate child.
-            #
-            # A more correct way of doing this might be to walk up the parents and do fixups,
-            # but I'm not quite sure how to do this yet. Just do two passes right now.
-            child = children_tree_indexes[0]
-
-            for tree_node in expression_tree:
-                tree_node.index
-                if tree_index in tree_node:
-                    tree_node[tree_node.index(tree_index)] = child
-
-            return
+            existing_index = tree_index
+            new_index = children_tree_indexes[0]
+            _fixup_expression_tree_references_to_tree_index(expression_tree, existing_index, new_index)
 
     for child_tree_index in children_tree_indexes:
-        _prune_expression_tree_empty_commas(be2, operand, expression_tree, child_tree_index)
+        _fixup_expression_tree_lonely_commas(be2, operand, expression_tree, child_tree_index)
 
 
 # internal to `build_expression_tree`
@@ -124,7 +147,7 @@ def _prune_expression_tree(
     expression_tree: list[list[int]],
 ):
     _prune_expression_tree_empty_shifts(be2, operand, expression_tree, 0)
-    _prune_expression_tree_empty_commas(be2, operand, expression_tree, 0)
+    _fixup_expression_tree_lonely_commas(be2, operand, expression_tree, 0)
 
 
 # this is unstable: it is subject to change, so don't rely on it!
@@ -173,7 +196,6 @@ def _build_expression_tree(
         tree.append(children)
 
     _prune_expression_tree(be2, operand, tree)
-    _prune_expression_tree(be2, operand, tree)
 
     return tree
 
@@ -193,9 +215,22 @@ def _fill_operand_expression_list(
     children_tree_indexes: list[int] = expression_tree[tree_index]
 
     if expression.type == BinExport2.Expression.REGISTER:
-        assert len(children_tree_indexes) == 0
+        assert len(children_tree_indexes) <= 1
         expression_list.append(expression)
-        return
+
+        if len(children_tree_indexes) == 0:
+            return
+        elif len(children_tree_indexes) == 1:
+            # like for aarch64 with vector instructions, indicating vector data size:
+            #
+            #     FADD V0.4S, V1.4S, V2.4S
+            #
+            # see: https://github.com/mandiant/capa/issues/2528
+            child_index = children_tree_indexes[0]
+            _fill_operand_expression_list(be2, operand, expression_tree, child_index, expression_list)
+            return
+        else:
+            raise NotImplementedError(len(children_tree_indexes))
 
     elif expression.type == BinExport2.Expression.SYMBOL:
         assert len(children_tree_indexes) <= 1
@@ -218,9 +253,23 @@ def _fill_operand_expression_list(
             raise NotImplementedError(len(children_tree_indexes))
 
     elif expression.type == BinExport2.Expression.IMMEDIATE_INT:
-        assert len(children_tree_indexes) == 0
+        assert len(children_tree_indexes) <= 1
         expression_list.append(expression)
-        return
+
+        if len(children_tree_indexes) == 0:
+            return
+        elif len(children_tree_indexes) == 1:
+            # the ghidra exporter can produce some weird expressions,
+            # particularly for MSRs, like for:
+            #
+            #     sreg(3, 0, c.0, c.4, 4)
+            #
+            # see: https://github.com/mandiant/capa/issues/2530
+            child_index = children_tree_indexes[0]
+            _fill_operand_expression_list(be2, operand, expression_tree, child_index, expression_list)
+            return
+        else:
+            raise NotImplementedError(len(children_tree_indexes))
 
     elif expression.type == BinExport2.Expression.SIZE_PREFIX:
         # like: b4

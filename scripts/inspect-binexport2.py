@@ -1,13 +1,18 @@
 #!/usr/bin/env python
-"""
-Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
-Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
-You may obtain a copy of the License at: [package root]/LICENSE.txt
-Unless required by applicable law or agreed to in writing, software distributed under the License
- is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and limitations under the License.
-"""
+# Copyright 2023 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import io
 import sys
 import time
@@ -75,15 +80,27 @@ def _render_expression_tree(
     tree_index: int,
     o: io.StringIO,
 ):
-
     expression_index = operand.expression_index[tree_index]
     expression = be2.expression[expression_index]
     children_tree_indexes: list[int] = expression_tree[tree_index]
 
     if expression.type == BinExport2.Expression.REGISTER:
         o.write(expression.symbol)
-        assert len(children_tree_indexes) == 0
-        return
+        assert len(children_tree_indexes) <= 1
+
+        if len(children_tree_indexes) == 0:
+            return
+        elif len(children_tree_indexes) == 1:
+            # like for aarch64 with vector instructions, indicating vector data size:
+            #
+            #     FADD V0.4S, V1.4S, V2.4S
+            #
+            # see: https://github.com/mandiant/capa/issues/2528
+            child_index = children_tree_indexes[0]
+            _render_expression_tree(be2, operand, expression_tree, child_index, o)
+            return
+        else:
+            raise NotImplementedError(len(children_tree_indexes))
 
     elif expression.type == BinExport2.Expression.SYMBOL:
         o.write(expression.symbol)
@@ -107,8 +124,22 @@ def _render_expression_tree(
 
     elif expression.type == BinExport2.Expression.IMMEDIATE_INT:
         o.write(f"0x{expression.immediate:X}")
-        assert len(children_tree_indexes) == 0
-        return
+        assert len(children_tree_indexes) <= 1
+
+        if len(children_tree_indexes) == 0:
+            return
+        elif len(children_tree_indexes) == 1:
+            # the ghidra exporter can produce some weird expressions,
+            # particularly for MSRs, like for:
+            #
+            #     sreg(3, 0, c.0, c.4, 4)
+            #
+            # see: https://github.com/mandiant/capa/issues/2530
+            child_index = children_tree_indexes[0]
+            _render_expression_tree(be2, operand, expression_tree, child_index, o)
+            return
+        else:
+            raise NotImplementedError(len(children_tree_indexes))
 
     elif expression.type == BinExport2.Expression.SIZE_PREFIX:
         # like: b4
@@ -124,11 +155,15 @@ def _render_expression_tree(
         return
 
     elif expression.type == BinExport2.Expression.OPERATOR:
-
         if len(children_tree_indexes) == 1:
             # prefix operator, like "ds:"
             if expression.symbol != "!":
                 o.write(expression.symbol)
+
+            if expression.symbol in ("lsl", "lsr"):
+                # like:     lsl 16
+                # not like: lsl16
+                o.write(" ")
 
             child_index = children_tree_indexes[0]
             _render_expression_tree(be2, operand, expression_tree, child_index, o)
@@ -143,7 +178,13 @@ def _render_expression_tree(
             child_a = children_tree_indexes[0]
             child_b = children_tree_indexes[1]
             _render_expression_tree(be2, operand, expression_tree, child_a, o)
+
             o.write(expression.symbol)
+            if expression.symbol == ",":
+                # like:    10, 20
+                # not like 10,20
+                o.write(" ")
+
             _render_expression_tree(be2, operand, expression_tree, child_b, o)
             return
 
@@ -154,9 +195,17 @@ def _render_expression_tree(
             child_c = children_tree_indexes[2]
             _render_expression_tree(be2, operand, expression_tree, child_a, o)
             o.write(expression.symbol)
+            if expression.symbol == ",":
+                o.write(" ")
             _render_expression_tree(be2, operand, expression_tree, child_b, o)
             o.write(expression.symbol)
+            if expression.symbol == ",":
+                o.write(" ")
             _render_expression_tree(be2, operand, expression_tree, child_c, o)
+            return
+
+        elif len(children_tree_indexes) == 0:
+            # like when all subtrees have been pruned: don't render anything
             return
 
         else:
@@ -250,7 +299,6 @@ def inspect_instruction(be2: BinExport2, instruction: BinExport2.Instruction, ad
 
 
 def main(argv=None):
-
     if argv is None:
         argv = sys.argv[1:]
 
@@ -365,10 +413,17 @@ def main(argv=None):
                                 operands = []
                                 for operand_index in instruction.operand_index:
                                     operand = be2.operand[operand_index]
-                                    # Ghidra bug where empty operands (no expressions) may
-                                    # exist so we skip those for now (see https://github.com/NationalSecurityAgency/ghidra/issues/6817)
-                                    if len(operand.expression_index) > 0:
-                                        operands.append(render_operand(be2, operand, index=operand_index))
+                                    if not operand.expression_index:
+                                        # Ghidra bug where empty operands (no expressions) may
+                                        # exist so we skip those for now (see https://github.com/NationalSecurityAgency/ghidra/issues/6817)
+                                        continue
+
+                                    op = render_operand(be2, operand, index=operand_index)
+                                    if not op:
+                                        # operand has been pruned away, so don't show it
+                                        continue
+
+                                    operands.append(op)
 
                                 call_targets = ""
                                 if instruction.call_target:

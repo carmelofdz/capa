@@ -1,10 +1,17 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright 2020 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import functools
 from typing import Any, Iterator, Optional
 
@@ -41,7 +48,15 @@ if hasattr(ida_bytes, "parse_binpat_str"):
             return
 
         while True:
-            ea, _ = ida_bytes.bin_search(start, end, patterns, ida_bytes.BIN_SEARCH_FORWARD)
+            ea = ida_bytes.bin_search(start, end, patterns, ida_bytes.BIN_SEARCH_FORWARD)
+            if isinstance(ea, int):
+                # "ea_t" in IDA 8.4, 8.3
+                pass
+            elif isinstance(ea, tuple):
+                # "drc_t" in IDA 9
+                ea = ea[0]
+            else:
+                raise NotImplementedError(f"bin_search returned unhandled type: {type(ea)}")
             if ea == idaapi.BADADDR:
                 break
             start = ea + 1

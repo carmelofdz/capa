@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""
-Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
-Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
-You may obtain a copy of the License at: [package root]/LICENSE.txt
-Unless required by applicable law or agreed to in writing, software distributed under the License
- is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and limitations under the License.
-"""
+# Copyright 2020 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import io
 import os
 import sys
@@ -17,7 +22,7 @@ import argparse
 import textwrap
 import contextlib
 from types import TracebackType
-from typing import Any, Optional, TypedDict
+from typing import Optional, TypedDict
 from pathlib import Path
 
 import colorama
@@ -42,7 +47,6 @@ import capa.render.result_document
 import capa.render.result_document as rdoc
 import capa.features.extractors.common
 from capa.rules import RuleSet
-from capa.engine import MatchResults
 from capa.loader import (
     BACKEND_IDA,
     BACKEND_VIV,
@@ -95,7 +99,13 @@ from capa.features.common import (
     FORMAT_BINJA_DB,
     FORMAT_BINEXPORT2,
 )
-from capa.capabilities.common import find_capabilities, has_file_limitation, find_file_capabilities
+from capa.capabilities.common import (
+    Capabilities,
+    find_capabilities,
+    has_static_limitation,
+    find_file_capabilities,
+    has_dynamic_limitation,
+)
 from capa.features.extractors.base_extractor import (
     ProcessFilter,
     FunctionFilter,
@@ -198,7 +208,7 @@ def simple_message_exception_handler(
     else:
         print(
             f"Unexpected exception raised: {exctype}. Please run capa in debug mode (-d/--debug) "
-            + "to see the stack trace. Please also report your issue on the capa GitHub page so we "
+            + "to see the stack trace.\nPlease also report your issue on the capa GitHub page so we "
             + "can improve the code! (https://github.com/mandiant/capa/issues)",
             file=sys.stderr,
         )
@@ -743,22 +753,21 @@ def get_file_extractors_from_cli(args, input_format: str) -> list[FeatureExtract
             raise ShouldExitError(E_INVALID_FILE_TYPE) from e
 
 
-def find_file_limitations_from_cli(args, rules: RuleSet, file_extractors: list[FeatureExtractor]) -> bool:
+def find_static_limitations_from_cli(args, rules: RuleSet, file_extractors: list[FeatureExtractor]) -> bool:
     """
     args:
       args: The parsed command line arguments from `install_common_args`.
+
+    Only file-scoped feature extractors like pefile are used.
+    Dynamic feature extractors can handle packed samples and do not need to be considered here.
 
     raises:
       ShouldExitError: if the program is invoked incorrectly and should exit.
     """
     found_file_limitation = False
     for file_extractor in file_extractors:
-        if isinstance(file_extractor, DynamicFeatureExtractor):
-            # Dynamic feature extractors can handle packed samples
-            continue
-
         try:
-            pure_file_capabilities, _ = find_file_capabilities(rules, file_extractor, {})
+            pure_file_capabilities = find_file_capabilities(rules, file_extractor, {})
         except PEFormatError as e:
             logger.error("Input file '%s' is not a valid PE file: %s", args.input_file, str(e))
             raise ShouldExitError(E_CORRUPT_FILE) from e
@@ -768,7 +777,7 @@ def find_file_limitations_from_cli(args, rules: RuleSet, file_extractors: list[F
 
         # file limitations that rely on non-file scope won't be detected here.
         # nor on FunctionName features, because pefile doesn't support this.
-        found_file_limitation = has_file_limitation(rules, pure_file_capabilities)
+        found_file_limitation = has_static_limitation(rules, pure_file_capabilities)
         if found_file_limitation:
             # bail if capa encountered file limitation e.g. a packed binary
             # do show the output in verbose mode, though.
@@ -776,6 +785,31 @@ def find_file_limitations_from_cli(args, rules: RuleSet, file_extractors: list[F
                 logger.debug("file limitation short circuit, won't analyze fully.")
                 raise ShouldExitError(E_FILE_LIMITATION)
     return found_file_limitation
+
+
+def find_dynamic_limitations_from_cli(args, rules: RuleSet, file_extractors: list[FeatureExtractor]) -> bool:
+    """
+    Does the dynamic analysis describe some trace that we may not support well?
+    For example, .NET samples detonated in a sandbox, which may rely on different API patterns than we currently describe in our rules.
+
+    args:
+      args: The parsed command line arguments from `install_common_args`.
+
+    raises:
+      ShouldExitError: if the program is invoked incorrectly and should exit..
+    """
+    found_dynamic_limitation = False
+    for file_extractor in file_extractors:
+        pure_dynamic_capabilities = find_file_capabilities(rules, file_extractor, {})
+        found_dynamic_limitation = has_dynamic_limitation(rules, pure_dynamic_capabilities)
+
+    if found_dynamic_limitation:
+        # bail if capa encountered file limitation e.g. a dotnet sample is detected
+        # do show the output in verbose mode, though.
+        if not (args.verbose or args.vverbose or args.json):
+            logger.debug("file limitation short circuit, won't analyze fully.")
+            raise ShouldExitError(E_FILE_LIMITATION)
+    return found_dynamic_limitation
 
 
 def get_signatures_from_cli(args, input_format: str, backend: str) -> list[Path]:
@@ -962,14 +996,18 @@ def main(argv: Optional[list[str]] = None):
         ensure_input_exists_from_cli(args)
         input_format = get_input_format_from_cli(args)
         rules = get_rules_from_cli(args)
+        found_limitation = False
         file_extractors = get_file_extractors_from_cli(args, input_format)
-        found_file_limitation = find_file_limitations_from_cli(args, rules, file_extractors)
+        if input_format in STATIC_FORMATS:
+            # only static extractors have file limitations
+            found_limitation = find_static_limitations_from_cli(args, rules, file_extractors)
+        if input_format in DYNAMIC_FORMATS:
+            found_limitation = find_dynamic_limitations_from_cli(args, rules, file_extractors)
     except ShouldExitError as e:
         return e.status_code
 
     meta: rdoc.Metadata
-    capabilities: MatchResults
-    counts: dict[str, Any]
+    capabilities: Capabilities
 
     if input_format == FORMAT_RESULT:
         # result document directly parses into meta, capabilities
@@ -991,25 +1029,28 @@ def main(argv: Optional[list[str]] = None):
         except ShouldExitError as e:
             return e.status_code
 
-        capabilities, counts = find_capabilities(rules, extractor, disable_progress=args.quiet)
+        capabilities = find_capabilities(rules, extractor, disable_progress=args.quiet)
 
-        meta = capa.loader.collect_metadata(argv, args.input_file, input_format, os_, args.rules, extractor, counts)
-        meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities)
+        meta = capa.loader.collect_metadata(
+            argv, args.input_file, input_format, os_, args.rules, extractor, capabilities
+        )
+        meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities.matches)
 
-        if isinstance(extractor, StaticFeatureExtractor) and found_file_limitation:
+        if found_limitation:
             # bail if capa's static feature extractor encountered file limitation e.g. a packed binary
+            # or capa's dynamic feature extractor encountered some limitation e.g. a dotnet sample
             # do show the output in verbose mode, though.
             if not (args.verbose or args.vverbose or args.json):
                 return E_FILE_LIMITATION
 
     if args.json:
-        print(capa.render.json.render(meta, rules, capabilities))
+        print(capa.render.json.render(meta, rules, capabilities.matches))
     elif args.vverbose:
-        print(capa.render.vverbose.render(meta, rules, capabilities))
+        print(capa.render.vverbose.render(meta, rules, capabilities.matches))
     elif args.verbose:
-        print(capa.render.verbose.render(meta, rules, capabilities))
+        print(capa.render.verbose.render(meta, rules, capabilities.matches))
     else:
-        print(capa.render.default.render(meta, rules, capabilities))
+        print(capa.render.default.render(meta, rules, capabilities.matches))
     colorama.deinit()
 
     logger.debug("done.")
@@ -1045,16 +1086,16 @@ def ida_main():
 
     meta = capa.ida.helpers.collect_metadata([rules_path])
 
-    capabilities, counts = find_capabilities(rules, capa.features.extractors.ida.extractor.IdaFeatureExtractor())
+    capabilities = find_capabilities(rules, capa.features.extractors.ida.extractor.IdaFeatureExtractor())
 
-    meta.analysis.feature_counts = counts["feature_counts"]
-    meta.analysis.library_functions = counts["library_functions"]
+    meta.analysis.feature_counts = capabilities.feature_counts
+    meta.analysis.library_functions = capabilities.library_functions
 
-    if has_file_limitation(rules, capabilities, is_standalone=False):
+    if has_static_limitation(rules, capabilities, is_standalone=False):
         capa.ida.helpers.inform_user_ida_ui("capa encountered warnings during analysis")
 
     colorama.init(strip=True)
-    print(capa.render.default.render(meta, rules, capabilities))
+    print(capa.render.default.render(meta, rules, capabilities.matches))
 
 
 def ghidra_main():
@@ -1079,19 +1120,19 @@ def ghidra_main():
 
     meta = capa.ghidra.helpers.collect_metadata([rules_path])
 
-    capabilities, counts = find_capabilities(
+    capabilities = find_capabilities(
         rules,
         capa.features.extractors.ghidra.extractor.GhidraFeatureExtractor(),
         not capa.ghidra.helpers.is_running_headless(),
     )
 
-    meta.analysis.feature_counts = counts["feature_counts"]
-    meta.analysis.library_functions = counts["library_functions"]
+    meta.analysis.feature_counts = capabilities.feature_counts
+    meta.analysis.library_functions = capabilities.library_functions
 
-    if has_file_limitation(rules, capabilities, is_standalone=False):
+    if has_static_limitation(rules, capabilities, is_standalone=False):
         logger.info("capa encountered warnings during analysis")
 
-    print(capa.render.default.render(meta, rules, capabilities))
+    print(capa.render.default.render(meta, rules, capabilities.matches))
 
 
 if __name__ == "__main__":

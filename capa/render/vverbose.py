@@ -1,10 +1,17 @@
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright 2020 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import logging
 import textwrap
 from typing import Iterable, Optional
@@ -47,7 +54,19 @@ def hanging_indent(s: str, indent: int) -> str:
     return textwrap.indent(s, prefix=prefix)[len(prefix) :]
 
 
-def render_locations(console: Console, layout: rd.Layout, locations: Iterable[frz.Address], indent: int):
+def render_locations(
+    console: Console, layout: rd.Layout, locations: Iterable[frz.Address], indent: int, use_short_format: bool = False
+):
+    """
+    Render the given locations, such as virtual address or pid/tid/callid with process name.
+
+    If `use_short_format` is True:
+    render a small representation of the given locations, such as just the call id,
+    assuming another region of output specified the full location details (like pid/tid).
+
+    In effect, rather than rendering ppid/pid/tid/callid everywhere,
+    describe ppid/pid/tid once, and then refer to just callid in the subsequent blocklin the subsequent block.
+    """
     import capa.render.verbose as v
 
     # it's possible to have an empty locations array here,
@@ -66,7 +85,11 @@ def render_locations(console: Console, layout: rd.Layout, locations: Iterable[fr
 
         if location.type == frz.AddressType.CALL:
             assert isinstance(layout, rd.DynamicLayout)
-            console.write(hanging_indent(v.render_call(layout, location), indent + 1))
+            if use_short_format:
+                render_call = v.render_short_call
+            else:
+                render_call = v.render_call
+            console.write(hanging_indent(render_call(layout, location), indent + 1))
         else:
             console.write(v.format_address(locations[0]))
 
@@ -74,6 +97,10 @@ def render_locations(console: Console, layout: rd.Layout, locations: Iterable[fr
         location = locations[0]
 
         assert isinstance(layout, rd.DynamicLayout)
+        if use_short_format:
+            render_call = v.render_short_call
+        else:
+            render_call = v.render_call
         s = f"{v.render_call(layout, location)}\nand {(len(locations) - 1)} more..."
         console.write(hanging_indent(s, indent + 1))
 
@@ -168,7 +195,7 @@ def render_feature(
 ):
     console.write("  " * indent)
 
-    key = feature.type
+    key = str(feature.type)
     value: Optional[str]
     if isinstance(feature, frzf.BasicBlockFeature):
         # i don't think it makes sense to have standalone basic block features.
@@ -223,10 +250,11 @@ def render_feature(
             # if we're in call scope, then the call will have been rendered at the top
             # of the output, so don't re-render it again for each feature.
             pass
-        elif isinstance(feature, (frzf.OSFeature, frzf.ArchFeature, frzf.FormatFeature)):
+        elif isinstance(layout, rd.DynamicLayout) and isinstance(feature, frzf.MatchFeature):
+            # don't render copies of the span of calls address for submatches
             pass
         else:
-            render_locations(console, layout, match.locations, indent)
+            render_locations(console, layout, match.locations, indent, use_short_format=True)
         console.writeln()
     else:
         # like:
@@ -243,7 +271,7 @@ def render_feature(
                 # like above, don't re-render calls when in call scope.
                 pass
             else:
-                render_locations(console, layout, locations, indent=indent)
+                render_locations(console, layout, locations, indent=indent + 1, use_short_format=True)
             console.writeln()
 
 
@@ -302,6 +330,36 @@ def render_match(
 
     for child in match.children:
         render_match(console, layout, rule, child, indent=indent + 1, mode=child_mode)
+
+
+def collect_span_of_calls_locations(
+    match: rd.Match,
+    mode=MODE_SUCCESS,
+):
+    """
+    Find all the call locations used in a given span-of-calls match, recursively.
+    Useful to collect the events used to match a span-of-calls scoped rule.
+    """
+    if not match.success:
+        return
+
+    for location in match.locations:
+        if location.type != frz.AddressType.CALL:
+            continue
+
+        if mode == MODE_FAILURE:
+            # only collect positive evidence,
+            # not things that filter out branches.
+            continue
+
+        yield location
+
+    child_mode = mode
+    if isinstance(match.node, rd.StatementNode) and match.node.statement.type == rd.CompoundStatementType.NOT:
+        child_mode = MODE_FAILURE if mode == MODE_SUCCESS else MODE_SUCCESS
+
+    for child in match.children:
+        yield from collect_span_of_calls_locations(child, child_mode)
 
 
 def render_rules(console: Console, doc: rd.ResultDocument):
@@ -443,6 +501,9 @@ def render_rules(console: Console, doc: rd.ResultDocument):
                         console.write(v.render_process(doc.meta.analysis.layout, location))
                     elif rule.meta.scopes.dynamic == capa.rules.Scope.THREAD:
                         console.write(v.render_thread(doc.meta.analysis.layout, location))
+                    elif rule.meta.scopes.dynamic == capa.rules.Scope.SPAN_OF_CALLS:
+                        calls = sorted(set(collect_span_of_calls_locations(match)))
+                        console.write(hanging_indent(v.render_span_of_calls(doc.meta.analysis.layout, calls), indent=1))
                     elif rule.meta.scopes.dynamic == capa.rules.Scope.CALL:
                         console.write(hanging_indent(v.render_call(doc.meta.analysis.layout, location), indent=1))
                     else:

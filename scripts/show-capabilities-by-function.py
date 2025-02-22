@@ -1,11 +1,18 @@
 #!/usr/bin/env python2
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright 2020 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 show-capabilities-by-function
 
@@ -46,14 +53,6 @@ Example::
       - set socket configuration
       - connect TCP socket
     ...
-
-Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
-Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
-You may obtain a copy of the License at: [package root]/LICENSE.txt
-Unless required by applicable law or agreed to in writing, software distributed under the License
- is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and limitations under the License.
 """
 import sys
 import logging
@@ -156,18 +155,18 @@ def main(argv=None):
     except capa.main.ShouldExitError as e:
         return e.status_code
 
-    capabilities, counts = capa.capabilities.common.find_capabilities(rules, extractor)
+    capabilities = capa.capabilities.common.find_capabilities(rules, extractor)
 
-    meta = capa.loader.collect_metadata(argv, args.input_file, input_format, os_, args.rules, extractor, counts)
-    meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities)
+    meta = capa.loader.collect_metadata(argv, args.input_file, input_format, os_, args.rules, extractor, capabilities)
+    meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities.matches)
 
-    if capa.capabilities.common.has_file_limitation(rules, capabilities):
+    if capa.capabilities.common.has_static_limitation(rules, capabilities):
         # bail if capa encountered file limitation e.g. a packed binary
         # do show the output in verbose mode, though.
         if not (args.verbose or args.vverbose or args.json):
             return capa.main.E_FILE_LIMITATION
 
-    doc = rd.ResultDocument.from_capa(meta, rules, capabilities)
+    doc = rd.ResultDocument.from_capa(meta, rules, capabilities.matches)
     print(render_matches_by_function(doc))
     colorama.deinit()
 

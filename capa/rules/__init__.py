@@ -1,10 +1,17 @@
-# Copyright (C) 2023 Mandiant, Inc. All Rights Reserved.
+# Copyright 2023 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 import io
 import os
@@ -79,6 +86,7 @@ class Scope(str, Enum):
     FILE = "file"
     PROCESS = "process"
     THREAD = "thread"
+    SPAN_OF_CALLS = "span of calls"
     CALL = "call"
     FUNCTION = "function"
     BASIC_BLOCK = "basic block"
@@ -107,6 +115,7 @@ DYNAMIC_SCOPES = {
     Scope.GLOBAL,
     Scope.PROCESS,
     Scope.THREAD,
+    Scope.SPAN_OF_CALLS,
     Scope.CALL,
 }
 
@@ -192,6 +201,7 @@ SUPPORTED_FEATURES: dict[str, set] = {
         capa.features.common.MatchedRule,
     },
     Scope.THREAD: set(),
+    Scope.SPAN_OF_CALLS: set(),
     Scope.CALL: {
         capa.features.common.MatchedRule,
         capa.features.common.Regex,
@@ -246,11 +256,14 @@ SUPPORTED_FEATURES[Scope.FUNCTION].update(SUPPORTED_FEATURES[Scope.GLOBAL])
 SUPPORTED_FEATURES[Scope.FILE].update(SUPPORTED_FEATURES[Scope.GLOBAL])
 SUPPORTED_FEATURES[Scope.PROCESS].update(SUPPORTED_FEATURES[Scope.GLOBAL])
 SUPPORTED_FEATURES[Scope.THREAD].update(SUPPORTED_FEATURES[Scope.GLOBAL])
+SUPPORTED_FEATURES[Scope.SPAN_OF_CALLS].update(SUPPORTED_FEATURES[Scope.GLOBAL])
 SUPPORTED_FEATURES[Scope.CALL].update(SUPPORTED_FEATURES[Scope.GLOBAL])
 
 
-# all call scope features are also thread features
-SUPPORTED_FEATURES[Scope.THREAD].update(SUPPORTED_FEATURES[Scope.CALL])
+# all call scope features are also span-of-calls features
+SUPPORTED_FEATURES[Scope.SPAN_OF_CALLS].update(SUPPORTED_FEATURES[Scope.CALL])
+# all span-of-calls scope features (and therefore, call features) are also thread features
+SUPPORTED_FEATURES[Scope.THREAD].update(SUPPORTED_FEATURES[Scope.SPAN_OF_CALLS])
 # all thread scope features are also process features
 SUPPORTED_FEATURES[Scope.PROCESS].update(SUPPORTED_FEATURES[Scope.THREAD])
 
@@ -584,6 +597,43 @@ def unique(sequence):
     return [x for x in sequence if not (x in seen or seen.add(x))]  # type: ignore [func-returns-value]
 
 
+STATIC_SCOPE_ORDER = [
+    Scope.FILE,
+    Scope.FUNCTION,
+    Scope.BASIC_BLOCK,
+    Scope.INSTRUCTION,
+]
+
+
+DYNAMIC_SCOPE_ORDER = [
+    Scope.FILE,
+    Scope.PROCESS,
+    Scope.THREAD,
+    Scope.SPAN_OF_CALLS,
+    Scope.CALL,
+]
+
+
+def is_subscope_compatible(scope: Scope | None, subscope: Scope) -> bool:
+    if not scope:
+        return False
+
+    if subscope in STATIC_SCOPE_ORDER:
+        try:
+            return STATIC_SCOPE_ORDER.index(subscope) >= STATIC_SCOPE_ORDER.index(scope)
+        except ValueError:
+            return False
+
+    elif subscope in DYNAMIC_SCOPE_ORDER:
+        try:
+            return DYNAMIC_SCOPE_ORDER.index(subscope) >= DYNAMIC_SCOPE_ORDER.index(scope)
+        except ValueError:
+            return False
+
+    else:
+        raise ValueError("unexpected scope")
+
+
 def build_statements(d, scopes: Scopes):
     if len(d.keys()) > 2:
         raise InvalidRule("too many statements")
@@ -608,8 +658,8 @@ def build_statements(d, scopes: Scopes):
         return ceng.Some(0, unique(build_statements(dd, scopes) for dd in d[key]), description=description)
 
     elif key == "process":
-        if Scope.FILE not in scopes:
-            raise InvalidRule("process subscope supported only for file scope")
+        if not is_subscope_compatible(scopes.dynamic, Scope.PROCESS):
+            raise InvalidRule("`process` subscope supported only for `file` scope")
 
         if len(d[key]) != 1:
             raise InvalidRule("subscope must have exactly one child statement")
@@ -619,8 +669,8 @@ def build_statements(d, scopes: Scopes):
         )
 
     elif key == "thread":
-        if all(s not in scopes for s in (Scope.FILE, Scope.PROCESS)):
-            raise InvalidRule("thread subscope supported only for the process scope")
+        if not is_subscope_compatible(scopes.dynamic, Scope.THREAD):
+            raise InvalidRule("`thread` subscope supported only for the `process` scope")
 
         if len(d[key]) != 1:
             raise InvalidRule("subscope must have exactly one child statement")
@@ -629,9 +679,22 @@ def build_statements(d, scopes: Scopes):
             Scope.THREAD, build_statements(d[key][0], Scopes(dynamic=Scope.THREAD)), description=description
         )
 
+    elif key == "span of calls":
+        if not is_subscope_compatible(scopes.dynamic, Scope.SPAN_OF_CALLS):
+            raise InvalidRule("`span of calls` subscope supported only for the `process` and `thread` scopes")
+
+        if len(d[key]) != 1:
+            raise InvalidRule("subscope must have exactly one child statement")
+
+        return ceng.Subscope(
+            Scope.SPAN_OF_CALLS,
+            build_statements(d[key][0], Scopes(dynamic=Scope.SPAN_OF_CALLS)),
+            description=description,
+        )
+
     elif key == "call":
-        if all(s not in scopes for s in (Scope.FILE, Scope.PROCESS, Scope.THREAD, Scope.CALL)):
-            raise InvalidRule("call subscope supported only for the process, thread, and call scopes")
+        if not is_subscope_compatible(scopes.dynamic, Scope.CALL):
+            raise InvalidRule("`call` subscope supported only for the `process`, `thread`, and `call` scopes")
 
         if len(d[key]) != 1:
             raise InvalidRule("subscope must have exactly one child statement")
@@ -641,8 +704,8 @@ def build_statements(d, scopes: Scopes):
         )
 
     elif key == "function":
-        if Scope.FILE not in scopes:
-            raise InvalidRule("function subscope supported only for file scope")
+        if not is_subscope_compatible(scopes.static, Scope.FUNCTION):
+            raise InvalidRule("`function` subscope supported only for `file` scope")
 
         if len(d[key]) != 1:
             raise InvalidRule("subscope must have exactly one child statement")
@@ -652,8 +715,8 @@ def build_statements(d, scopes: Scopes):
         )
 
     elif key == "basic block":
-        if Scope.FUNCTION not in scopes:
-            raise InvalidRule("basic block subscope supported only for function scope")
+        if not is_subscope_compatible(scopes.static, Scope.BASIC_BLOCK):
+            raise InvalidRule("`basic block` subscope supported only for `function` scope")
 
         if len(d[key]) != 1:
             raise InvalidRule("subscope must have exactly one child statement")
@@ -663,8 +726,8 @@ def build_statements(d, scopes: Scopes):
         )
 
     elif key == "instruction":
-        if all(s not in scopes for s in (Scope.FUNCTION, Scope.BASIC_BLOCK)):
-            raise InvalidRule("instruction subscope supported only for function and basic block scope")
+        if not is_subscope_compatible(scopes.static, Scope.INSTRUCTION):
+            raise InvalidRule("`instruction` subscope supported only for `function` and `basic block` scope")
 
         if len(d[key]) == 1:
             statements = build_statements(d[key][0], Scopes(static=Scope.INSTRUCTION))
@@ -846,18 +909,18 @@ class Rule:
     def __repr__(self):
         return f"Rule(scope={self.scopes}, name={self.name})"
 
-    def get_dependencies(self, namespaces):
+    def get_dependencies(self, namespaces: dict[str, list["Rule"]]) -> set[str]:
         """
         fetch the names of rules this rule relies upon.
         these are only the direct dependencies; a user must
         compute the transitive dependency graph themself, if they want it.
 
         Args:
-          namespaces(dict[str, list[Rule]]): mapping from namespace name to rules in it.
+          namespaces: mapping from namespace name to rules in it.
             see `index_rules_by_namespace`.
 
         Returns:
-          list[str]: names of rules upon which this rule depends.
+          set[str]: names of rules upon which this rule depends.
         """
         deps: set[str] = set()
 
@@ -873,6 +936,7 @@ class Rule:
                 # but, namespaces tend to use `-` while rule names use ` `. so, unlikely, but possible.
                 if statement.value in namespaces:
                     # matches a namespace, so take precedence and don't even check rule names.
+                    assert isinstance(statement.value, str)
                     deps.update(r.name for r in namespaces[statement.value])
                 else:
                     # not a namespace, assume it's a rule name.
@@ -938,9 +1002,6 @@ class Rule:
             #  because its been replaced by a `match` statement.
             for child in statement.get_children():
                 yield from self._extract_subscope_rules_rec(child)
-
-    def is_file_limitation_rule(self) -> bool:
-        return self.meta.get("namespace", "") == "internal/limitation/file"
 
     def is_subscope_rule(self):
         return bool(self.meta.get("capa/subscope-rule", False))
@@ -1376,6 +1437,7 @@ class RuleSet:
 
         scopes = (
             Scope.CALL,
+            Scope.SPAN_OF_CALLS,
             Scope.THREAD,
             Scope.PROCESS,
             Scope.INSTRUCTION,
@@ -1405,6 +1467,10 @@ class RuleSet:
     @property
     def thread_rules(self):
         return self.rules_by_scope[Scope.THREAD]
+
+    @property
+    def span_of_calls_rules(self):
+        return self.rules_by_scope[Scope.SPAN_OF_CALLS]
 
     @property
     def call_rules(self):
@@ -2161,8 +2227,8 @@ def get_rules(
         on_load_rule(path, i, total_rule_count)
 
         try:
-            rule = capa.rules.Rule.from_yaml(content.decode("utf-8"))
-        except capa.rules.InvalidRule:
+            rule = Rule.from_yaml(content.decode("utf-8"))
+        except InvalidRule:
             raise
         else:
             rule.meta["capa/path"] = path.as_posix()
@@ -2171,7 +2237,7 @@ def get_rules(
             rules.append(rule)
             logger.debug("loaded rule: '%s' with scope: %s", rule.name, rule.scopes)
 
-    ruleset = capa.rules.RuleSet(rules)
+    ruleset = RuleSet(rules)
 
     capa.rules.cache.cache_ruleset(cache_dir, ruleset)
 

@@ -2,13 +2,20 @@
 # @author Colton Gabertan (gabertan.colton@gmail.com)
 # @category Python 3.capa
 
-# Copyright (C) 2024 Mandiant, Inc. All Rights Reserved.
+# Copyright 2024 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import sys
 import json
 import logging
@@ -238,13 +245,13 @@ def get_capabilities():
     meta = capa.ghidra.helpers.collect_metadata([rules_path])
     extractor = capa.features.extractors.ghidra.extractor.GhidraFeatureExtractor()
 
-    capabilities, counts = capa.capabilities.common.find_capabilities(rules, extractor, True)
+    capabilities = capa.capabilities.common.find_capabilities(rules, extractor, True)
 
-    if capa.capabilities.common.has_file_limitation(rules, capabilities, is_standalone=False):
+    if capa.capabilities.common.has_static_limitation(rules, capabilities, is_standalone=False):
         popup("capa explorer encountered warnings during analysis. Please check the console output for more information.")  # type: ignore [name-defined] # noqa: F821
         logger.info("capa encountered warnings during analysis")
 
-    return capa.render.json.render(meta, rules, capabilities)
+    return capa.render.json.render(meta, rules, capabilities.matches)
 
 
 def get_locations(match_dict):

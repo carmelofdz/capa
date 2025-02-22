@@ -1,13 +1,19 @@
 #!/usr/bin/env python
-"""
-Copyright (C) 2024 Mandiant, Inc. All Rights Reserved.
-Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
-You may obtain a copy of the License at: [package root]/LICENSE.txt
-Unless required by applicable law or agreed to in writing, software distributed under the License
- is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and limitations under the License.
+# Copyright 2024 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+"""
 Extract files relevant to capa analysis from VMRay Analysis Archive and create a new ZIP file.
 """
 import sys
@@ -43,9 +49,9 @@ def main(argv=None):
     vmra = VMRayAnalysis(analysis_archive)
     sv2_json = vmra.zipfile.read("logs/summary_v2.json", pwd=DEFAULT_ARCHIVE_PASSWORD)
     flog_xml = vmra.zipfile.read("logs/flog.xml", pwd=DEFAULT_ARCHIVE_PASSWORD)
-    sample_file_buf = vmra.sample_file_buf
-    assert vmra.sample_file_analysis is not None
-    sample_sha256: str = vmra.sample_file_analysis.hash_values.sha256.lower()
+    sample_file_buf = vmra.submission_bytes
+    assert vmra.submission_meta is not None
+    sample_sha256: str = vmra.submission_meta.hash_values.sha256.lower()
 
     new_zip_name = f"{analysis_archive.parent / analysis_archive.stem}_min.zip"
     with zipfile.ZipFile(new_zip_name, "w") as new_zip:

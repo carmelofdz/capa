@@ -1,10 +1,17 @@
-# Copyright (C) 2021 Mandiant, Inc. All Rights Reserved.
+# Copyright 2021 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 import abc
 import hashlib
@@ -481,11 +488,11 @@ class DynamicFeatureExtractor:
         raise NotImplementedError()
 
 
-def ProcessFilter(extractor: DynamicFeatureExtractor, processes: set) -> DynamicFeatureExtractor:
+def ProcessFilter(extractor: DynamicFeatureExtractor, pids: set[int]) -> DynamicFeatureExtractor:
     original_get_processes = extractor.get_processes
 
     def filtered_get_processes(self):
-        yield from (f for f in original_get_processes() if f.address.pid in processes)
+        yield from (f for f in original_get_processes() if f.address.pid in pids)
 
     # we make a copy of the original extractor object and then update its get_processes() method with the decorated filter one.
     # this is in order to preserve the original extractor object's get_processes() method, in case it is used elsewhere in the code.
@@ -493,6 +500,18 @@ def ProcessFilter(extractor: DynamicFeatureExtractor, processes: set) -> Dynamic
     # with some of these tests needing to install a processes filter on the extractor object.
     new_extractor = copy(extractor)
     new_extractor.get_processes = MethodType(filtered_get_processes, extractor)  # type: ignore
+
+    return new_extractor
+
+
+def ThreadFilter(extractor: DynamicFeatureExtractor, threads: set[Address]) -> DynamicFeatureExtractor:
+    original_get_threads = extractor.get_threads
+
+    def filtered_get_threads(self, ph: ProcessHandle):
+        yield from (t for t in original_get_threads(ph) if t.address in threads)
+
+    new_extractor = copy(extractor)
+    new_extractor.get_threads = MethodType(filtered_get_threads, extractor)  # type: ignore
 
     return new_extractor
 

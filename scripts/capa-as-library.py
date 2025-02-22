@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-# Copyright (C) 2020 Mandiant, Inc. All Rights Reserved.
+# Copyright 2020 Google LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at: [package root]/LICENSE.txt
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 import json
 import collections
@@ -177,25 +184,25 @@ def capa_details(rules_path: Path, input_file: Path, output_format="dictionary")
     extractor = capa.loader.get_extractor(
         input_file, FORMAT_AUTO, OS_AUTO, capa.main.BACKEND_VIV, [], should_save_workspace=False, disable_progress=True
     )
-    capabilities, counts = capa.capabilities.common.find_capabilities(rules, extractor, disable_progress=True)
+    capabilities = capa.capabilities.common.find_capabilities(rules, extractor, disable_progress=True)
 
     # collect metadata (used only to make rendering more complete)
-    meta = capa.loader.collect_metadata([], input_file, FORMAT_AUTO, OS_AUTO, [rules_path], extractor, counts)
-    meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities)
+    meta = capa.loader.collect_metadata([], input_file, FORMAT_AUTO, OS_AUTO, [rules_path], extractor, capabilities)
+    meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities.matches)
 
     capa_output: Any = False
 
     if output_format == "dictionary":
         # ...as python dictionary, simplified as textable but in dictionary
-        doc = rd.ResultDocument.from_capa(meta, rules, capabilities)
+        doc = rd.ResultDocument.from_capa(meta, rules, capabilities.matches)
         capa_output = render_dictionary(doc)
     elif output_format == "json":
         # render results
         # ...as json
-        capa_output = json.loads(capa.render.json.render(meta, rules, capabilities))
+        capa_output = json.loads(capa.render.json.render(meta, rules, capabilities.matches))
     elif output_format == "texttable":
         # ...as human readable text table
-        capa_output = capa.render.default.render(meta, rules, capabilities)
+        capa_output = capa.render.default.render(meta, rules, capabilities.matches)
 
     return capa_output
 

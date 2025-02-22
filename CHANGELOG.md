@@ -4,6 +4,105 @@
 
 ### New Features
 
+### Breaking Changes
+
+### New Rules (3)
+
+- host-interaction/registry/change-registry-key-timestamp wballenthin@google.com
+- host-interaction/mutex/check-mutex-and-terminate-process-on-windows @_re_fox moritz.raabe@mandiant.com mehunhoff@google.com
+-
+
+### Bug Fixes
+- only parse CAPE fields required for analysis @mike-hunhoff #2607
+
+### capa Explorer Web
+
+### capa Explorer IDA Pro plugin
+
+### Development
+
+### Raw diffs
+- [capa v9.0.0...master](https://github.com/mandiant/capa/compare/v9.0.0...master)
+- [capa-rules v9.0.0...master](https://github.com/mandiant/capa-rules/compare/v9.0.0...master)
+
+## v9.0.0
+
+This release introduces a new scope for dynamic analysis, "span of calls",
+ that matches features against a across a sliding window of API calls within a thread.
+Its useful for identifying behaviors that span multiple API calls,
+ such as `OpenFile`/`ReadFile`/`CloseFile`, without having to analyze an entire thread, which may be very long.
+
+The release also contains a number of bug fixes and enhancements by new contributors: @v1bh475u and @dhruvak001. Welcome and thank you!
+
+### New Features
+
+- add warning for dynamic .NET samples #1864 @v1bh475u
+- add lint for detecting duplicate features in capa-rules #2250 @v1bh475u
+- add span-of-calls scope to match features against a across a sliding window of API calls within a thread @williballenthin #2532
+- add lint to catch rules that depend on other rules with impossible scope @williballenthin #2124
+
+### Breaking Changes
+
+- remove `is_static_limitation` method from `capa.rules.Rule`
+- add span-of-calls scope to rule format
+- capabilities functions return dataclasses instead of tuples
+
+### New Rules (3)
+
+- data-manipulation/encryption/rsa/encrypt-data-using-rsa-via-embedded-library @Ana06
+- data-manipulation/encryption/use-bigint-function @Ana06
+- internal/limitation/dynamic/internal-dotnet-file-limitation @v1bh475u
+
+
+### Bug Fixes
+
+- dynamic: only check file limitations for static file formats @mr-tz
+- vmray: load more analysis archives @mr-tz
+- vmray: skip non-printable strings @mike-hunhoff
+- vmray: loosen file checks to enable processing more file types @mike-hunhoff #2571
+- strings: add type hints and fix uncovered bugs @williballenthin #2555
+- elffile: handle symbols without a name @williballenthin #2553
+- project: remove pytest-cov that wasn't used @williballenthin @2491
+- replace binascii methods with native Python methods @v1bh475u #2582
+- rules: scopes can now have subscope blocks with the same scope @williballenthin #2584
+
+### capa Explorer Web
+
+### capa Explorer IDA Pro plugin
+
+### Development
+
+- license & copyright: Correct LICENSE file and improve copyright and license information headers in the source code files @Ana06
+- documentation: Improve CLA and Code of Conduct information in CONTRIBUTING @Ana06
+
+### Raw diffs
+- [capa v8.0.1...v9.0.0](https://github.com/mandiant/capa/compare/v8.0.1...v9.0.0)
+- [capa-rules v8.0.1...v9.0.0](https://github.com/mandiant/capa-rules/compare/v8.0.1...v9.0.0)
+
+## v8.0.1
+
+This point release fixes an issue with the IDAPython API to now handle IDA Pro 8.3, 8.4, and 9.0 correctly.
+
+### Bug Fixes
+
+- handle IDA 8.3/8.4 vs. 9.0 API change @mr-tz
+
+### Raw diffs
+- [capa v8.0.0...v8.0.1](https://github.com/mandiant/capa/compare/v8.0.0...v8.0.1)
+- [capa-rules v8.0.0...v8.0.1](https://github.com/mandiant/capa-rules/compare/v8.0.0...v8.0.1)
+
+## v8.0.0
+
+capa version 8 adds support for IDA Pro 9.0 (and idalib). The release comes with various improvements and bug fixes for the Binary Ninja backend (including to load with database files) -- thanks to @xusheng6.
+
+Additional bug fixes improve the dynamic and BinExport backends.
+
+capa version 8 now requires Python 3.10 or newer.
+
+Special thanks to @Tamir-K, @harshit-wadhwani, @jorik-utwente for their great contributions.
+
+### New Features
+
 - allow call as valid subscope for call scoped rules @mr-tz
 - support loading and analyzing a Binary Ninja database #2496 @xusheng6
 - vmray: record process command line details @mr-tz
@@ -12,7 +111,7 @@
 
 - remove support for Python 3.8 and use Python 3.10 as minimum now #1966 @mr-tz
 
-### New Rules (18)
+### New Rules (54)
 
 - nursery/get-shadow-password-file-entry-on-linux jonathanlepore@google.com
 - nursery/set-shadow-password-file-entry-on-linux jonathanlepore@google.com
@@ -32,7 +131,42 @@
 - nursery/persist-via-windows-accessibility-tools j.j.vannielen@utwente.nl
 - nursery/persist-via-windows-terminal-profile j.j.vannielen@utwente.nl
 - nursery/write-to-browser-extension-directory j.j.vannielen@utwente.nl
--
+- nursery/persist-via-aedebug-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-amsi-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-app-paths-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-appcertdlls-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-appx-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-autodialdll-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-autoplayhandlers-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-bootverificationprogram-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-code-signing-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-com-hijack j.j.vannielen@utwente.nl
+- nursery/persist-via-command-processor-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-contextmenuhandlers-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-cor_profiler_path-registry-value j.j.vannielen@utwente.nl
+- nursery/persist-via-default-file-association-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-disk-cleanup-handler-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-dotnet-dbgmanageddebugger-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-dotnet_startup_hooks-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-explorer-tools-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-filter-handlers-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-group-policy-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-hhctrl-com-hijack j.j.vannielen@utwente.nl
+- nursery/persist-via-htmlhelp-author-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-image-file-execution-options-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-lsa-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-natural-language-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-netsh-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-network-provider-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-path-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-print-monitors-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-rdp-startup-programs-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-silentprocessexit-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-telemetrycontroller-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-timeproviders-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-ts-initialprogram-registry-key j.j.vannielen@utwente.nl
+- nursery/persist-via-userinitmprlogonscript-registry-value j.j.vannielen@utwente.nl
+- nursery/persist-via-windows-error-reporting-registry-key j.j.vannielen@utwente.nl
 
 ### Bug Fixes
 
@@ -45,6 +179,9 @@
 - cape: make Process model flexible and procmemory optional to load newest reports #2466 @mr-tz
 - binja: fix unit test failure by fixing up the analysis for file al-khaser_x64.exe_ #2507 @xusheng6
 - binja: move the stack string detection to function level #2516 @xusheng6
+- BinExport2: fix handling of incorrect thunk functions #2524 @williballenthin
+- BinExport2: more precise pruning of expressions @williballenthin
+- BinExport2: better handle weird expression trees from Ghidra #2528 #2530 @williballenthin
 
 ### capa Explorer Web
 
@@ -58,8 +195,8 @@
 - CI: update Binary Ninja version to 4.2 #2499 @xusheng6
 
 ### Raw diffs
-- [capa v7.4.0...master](https://github.com/mandiant/capa/compare/v7.4.0...master)
-- [capa-rules v7.4.0...master](https://github.com/mandiant/capa-rules/compare/v7.4.0...master)
+- [capa v7.4.0...v8.0.0](https://github.com/mandiant/capa/compare/v7.4.0...v8.0.0)
+- [capa-rules v7.4.0...v8.0.0](https://github.com/mandiant/capa-rules/compare/v7.4.0...v8.0.0)
 
 ## v7.4.0
 
