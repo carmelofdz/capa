@@ -55,6 +55,7 @@ from capa.loader import (
     BACKEND_VMRAY,
     BACKEND_DOTNET,
     BACKEND_FREEZE,
+    BACKEND_GHIDRA,
     BACKEND_PEFILE,
     BACKEND_DRAKVUF,
     BACKEND_BINEXPORT2,
@@ -298,6 +299,7 @@ def install_common_args(parser, wanted=None):
             (BACKEND_BINJA, "Binary Ninja"),
             (BACKEND_DOTNET, ".NET"),
             (BACKEND_BINEXPORT2, "BinExport2"),
+            (BACKEND_GHIDRA, "Ghidra"),
             (BACKEND_FREEZE, "capa freeze"),
             (BACKEND_CAPE, "CAPE"),
             (BACKEND_DRAKVUF, "DRAKVUF"),
@@ -392,6 +394,7 @@ class ShouldExitError(Exception):
     """raised when a main-related routine indicates the program should exit."""
 
     def __init__(self, status_code: int):
+        super().__init__(status_code)
         self.status_code = status_code
 
 
@@ -995,7 +998,27 @@ def main(argv: Optional[list[str]] = None):
         handle_common_args(args)
         ensure_input_exists_from_cli(args)
         input_format = get_input_format_from_cli(args)
-        rules = get_rules_from_cli(args)
+    except ShouldExitError as e:
+        return e.status_code
+
+    if input_format == FORMAT_RESULT:
+        # render the result document immediately,
+        # no need to load the rules or do other processing.
+        result_doc = capa.render.result_document.ResultDocument.from_file(args.input_file)
+
+        if args.json:
+            print(result_doc.model_dump_json(exclude_none=True))
+        elif args.vverbose:
+            print(capa.render.vverbose.render_vverbose(result_doc))
+        elif args.verbose:
+            print(capa.render.verbose.render_verbose(result_doc))
+        else:
+            print(capa.render.default.render_default(result_doc))
+        return 0
+
+    try:
+        rules: RuleSet = get_rules_from_cli(args)
+
         found_limitation = False
         file_extractors = get_file_extractors_from_cli(args, input_format)
         if input_format in STATIC_FORMATS:
@@ -1003,45 +1026,30 @@ def main(argv: Optional[list[str]] = None):
             found_limitation = find_static_limitations_from_cli(args, rules, file_extractors)
         if input_format in DYNAMIC_FORMATS:
             found_limitation = find_dynamic_limitations_from_cli(args, rules, file_extractors)
+
+        backend = get_backend_from_cli(args, input_format)
+        sample_path = get_sample_path_from_cli(args, backend)
+        if sample_path is None:
+            os_ = "unknown"
+        else:
+            os_ = capa.loader.get_os(sample_path)
+        extractor: FeatureExtractor = get_extractor_from_cli(args, input_format, backend)
     except ShouldExitError as e:
         return e.status_code
 
-    meta: rdoc.Metadata
-    capabilities: Capabilities
+    capabilities: Capabilities = find_capabilities(rules, extractor, disable_progress=args.quiet)
 
-    if input_format == FORMAT_RESULT:
-        # result document directly parses into meta, capabilities
-        result_doc = capa.render.result_document.ResultDocument.from_file(args.input_file)
-        meta, capabilities = result_doc.to_capa()
+    meta: rdoc.Metadata = capa.loader.collect_metadata(
+        argv, args.input_file, input_format, os_, args.rules, extractor, capabilities
+    )
+    meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities.matches)
 
-    else:
-        # all other formats we must create an extractor
-        # and use that to extract meta and capabilities
-
-        try:
-            backend = get_backend_from_cli(args, input_format)
-            sample_path = get_sample_path_from_cli(args, backend)
-            if sample_path is None:
-                os_ = "unknown"
-            else:
-                os_ = capa.loader.get_os(sample_path)
-            extractor = get_extractor_from_cli(args, input_format, backend)
-        except ShouldExitError as e:
-            return e.status_code
-
-        capabilities = find_capabilities(rules, extractor, disable_progress=args.quiet)
-
-        meta = capa.loader.collect_metadata(
-            argv, args.input_file, input_format, os_, args.rules, extractor, capabilities
-        )
-        meta.analysis.layout = capa.loader.compute_layout(rules, extractor, capabilities.matches)
-
-        if found_limitation:
-            # bail if capa's static feature extractor encountered file limitation e.g. a packed binary
-            # or capa's dynamic feature extractor encountered some limitation e.g. a dotnet sample
-            # do show the output in verbose mode, though.
-            if not (args.verbose or args.vverbose or args.json):
-                return E_FILE_LIMITATION
+    if found_limitation:
+        # bail if capa's static feature extractor encountered file limitation e.g. a packed binary
+        # or capa's dynamic feature extractor encountered some limitation e.g. a dotnet sample
+        # do show the output in verbose mode, though.
+        if not (args.verbose or args.vverbose or args.json):
+            return E_FILE_LIMITATION
 
     if args.json:
         print(capa.render.json.render(meta, rules, capabilities.matches))
@@ -1099,13 +1107,25 @@ def ida_main():
 
 
 def ghidra_main():
+    from ghidra.program.flatapi import FlatProgramAPI
+
     import capa.rules
     import capa.ghidra.helpers
     import capa.render.default
+    import capa.features.extractors.ghidra.context
     import capa.features.extractors.ghidra.extractor
 
     logging.basicConfig(level=logging.INFO)
     logging.getLogger().setLevel(logging.INFO)
+
+    # These are provided by the Ghidra scripting environment
+    # but are not available when running standard python
+    # so we have to ignore the linting errors
+    program = currentProgram  # type: ignore [name-defined] # noqa: F821
+    monitor_ = monitor  # type: ignore [name-defined] # noqa: F821
+    flat_api = FlatProgramAPI(program)
+
+    capa.features.extractors.ghidra.context.set_context(program, flat_api, monitor_)
 
     logger.debug("-" * 80)
     logger.debug(" Using default embedded rules.")
